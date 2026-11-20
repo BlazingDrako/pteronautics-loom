@@ -3,7 +3,7 @@
 //
 // Every edit is broken into primitive operations (add, delete, set, move). Applying one
 // returns its inverse, so a transaction's inverse is its inverses in reverse order.
-import { ELEMENTS, RELATIONSHIPS, LAYERS, isRel, isKind, canOwnKind, canRelate, defaultProps, kindName } from './metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, LAYERS, isRel, isKind, canOwnKind, canRelate, defaultProps, kindName, isDiagram, DIAGRAM_KINDS } from './metamodel.js';
 import { newId } from './ids.js';
 
 /**
@@ -13,16 +13,22 @@ import { newId } from './ids.js';
  *   source?: string, target?: string,    // relationships only
  *   layer?: import('./metamodel.js').Layer, // the four top-level layer packages only
  *   props: Record<string, any>,
+ *   layout?: { nodes: Record<string, Rect> }, // diagrams only: where each shown element sits
  * }} Element
+ * @typedef {{ x: number, y: number, w: number, h: number }} Rect
  * @typedef {{ t: 'add', el: Element, index: number }
  *   | { t: 'del', id: string }
  *   | { t: 'set', id: string, name?: string, props?: Record<string, any> }
- *   | { t: 'move', id: string, owner: string, index: number }} Op
+ *   | { t: 'move', id: string, owner: string, index: number }
+ *   | { t: 'lay', id: string, nodes: Record<string, Rect | null> }} Op
  * @typedef {{ label: string, ops: Op[] }} Entry
  * @typedef {{ label: string, cause: 'do' | 'undo' | 'redo' | 'load', ids: Set<string> }} ChangeEvent
  */
 
 export class ModelError extends Error {}
+
+/** Positions are whole pixels, so files stay small and diffs stay readable. @param {number} v */
+const round = (v) => Math.round(v);
 
 /** A deep copy of plain JSON data. @template T @param {T} v @returns {T} */
 const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -117,6 +123,18 @@ export function createModel(opts = {}) {
         open?.ids.add(el.id);
         return inv;
       }
+      case 'lay': {
+        const d = must(op.id);
+        const nodes = /** @type {NonNullable<Element['layout']>} */ (d.layout).nodes;
+        /** @type {Record<string, Rect | null>} */
+        const inv = {};
+        for (const [k, r] of Object.entries(op.nodes)) {
+          inv[k] = nodes[k] ? { ...nodes[k] } : null;
+          if (r) nodes[k] = { ...r }; else delete nodes[k];
+        }
+        open?.ids.add(d.id);
+        return { t: 'lay', id: d.id, nodes: inv };
+      }
       case 'move': {
         const el = must(op.id);
         const old = /** @type {string} */ (el.owner);
@@ -203,6 +221,8 @@ export function createModel(opts = {}) {
       return !api.relsFrom(src).some((r) => r.kind === kind && r.target === tgt);
     },
     /** Elements that refer to `id` through a ref property. @param {string} id */
+    /** Diagrams that show element `id`. @param {string} id @returns {Element[]} */
+    diagramsShowing(id) { return DIAGRAM_KINDS.flatMap((k) => api.byKind(k)).filter((d) => d.layout && id in d.layout.nodes); },
     referrers(id) {
       return [...els.values()].filter((e) => Object.entries(ELEMENTS[e.kind]?.props || {}).some(([k, p]) => p.type === 'ref' && e.props[k] === id));
     },
@@ -253,7 +273,10 @@ export function createModel(opts = {}) {
       const name = o.name ?? nextName(kind, o.owner);
       const props = { ...defaultProps(kind), ...(o.props || {}) };
       checkRefs(kind, props);
-      run({ t: 'add', el: { id, kind, name, owner: o.owner, props }, index: o.index ?? Infinity });
+      /** @type {Element} */
+      const el = { id, kind, name, owner: o.owner, props };
+      if (isDiagram(kind)) el.layout = { nodes: {} };
+      run({ t: 'add', el, index: o.index ?? Infinity });
       return id;
     },
     /** @param {string} id @param {string} name */
@@ -304,7 +327,36 @@ export function createModel(opts = {}) {
         for (const [k, p] of Object.entries(ELEMENTS[ref.kind].props)) if (p.type === 'ref' && ref.props[k] === d) clear[k] = null;
         run({ t: 'set', id: ref.id, props: clear });
       }
+      // take doomed elements off every diagram that survives
+      for (const dk of DIAGRAM_KINDS) for (const dg of api.byKind(dk)) {
+        if (set.has(dg.id) || !dg.layout) continue;
+        /** @type {Record<string, null>} */
+        const off = {};
+        for (const d of doomed) if (d in dg.layout.nodes) off[d] = null;
+        if (Object.keys(off).length) run({ t: 'lay', id: dg.id, nodes: off });
+      }
       for (const d of doomed) run({ t: 'del', id: d });
+    },
+    /**
+     * Place, move, resize or remove elements on a diagram. A null rect takes the element off
+     * the diagram (it stays in the model).
+     * @param {string} diagramId @param {Record<string, Rect | null>} patch
+     */
+    place(diagramId, patch) {
+      const d = must(diagramId);
+      if (!isDiagram(d.kind) || !d.layout) throw new ModelError(`${d.name} is not a diagram`);
+      /** @type {Record<string, Rect | null>} */
+      const changes = {};
+      for (const [id, r] of Object.entries(patch)) {
+        if (r === null) { if (id in d.layout.nodes) changes[id] = null; continue; }
+        const e = must(id);
+        if (isRel(e.kind) || isDiagram(e.kind) || !e.owner) throw new ModelError(`${e.name} cannot be shown on a diagram`);
+        const rect = { x: round(r.x), y: round(r.y), w: Math.max(40, round(r.w)), h: Math.max(30, round(r.h)) };
+        if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) throw new ModelError('A position must be a number');
+        const old = d.layout.nodes[id];
+        if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h) changes[id] = rect;
+      }
+      if (Object.keys(changes).length) run({ t: 'lay', id: diagramId, nodes: changes });
     },
     /**
      * Create a relationship.

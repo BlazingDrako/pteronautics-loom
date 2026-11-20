@@ -1,5 +1,6 @@
 // The Kestrel UAS sample: a small but complete RFLP model, used for "Start from a sample"
 // and as a test fixture. Values are illustrative.
+import { populate } from '../canvas/populate.js';
 
 /** @param {import('./model.js').Model} m */
 export function buildKestrel(m) {
@@ -44,6 +45,11 @@ export function buildKestrel(m) {
     tx.create('port', { owner: motor, name: 'pwrIn', props: { type: power, direction: 'in' } });
     tx.create('part', { owner: prop, name: 'battery', props: { type: batt } });
     tx.create('part', { owner: prop, name: 'motor', props: { type: motor } });
+    const energyStore = tx.create('partDef', { owner: L, name: 'Energy Storage' });
+    tx.create('attribute', { owner: energyStore, name: 'usableEnergy', props: { unit: 'Wh' } });
+    tx.link('generalize', batt, energyStore);
+    const dia = tx.create('bdd', { owner: L, name: 'Air vehicle structure' });
+    populate(m, tx, dia, [av, prop, avion, pay, batt, motor, energyStore, power]);
 
     // Physical
     const pBatt = tx.create('partDef', { owner: P, name: 'LiPo 12S 16 Ah pack' });

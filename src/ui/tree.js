@@ -3,7 +3,7 @@
 // the + button to add inside, arrow keys to move around (WAI-ARIA tree pattern).
 import { h, icon } from './dom.js';
 import { popupMenu } from './menu.js';
-import { ELEMENTS, LAYERS, kindName, childKinds, isRel } from '../model/metamodel.js';
+import { ELEMENTS, LAYERS, kindName, childKinds, isRel, isDiagram } from '../model/metamodel.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -18,6 +18,7 @@ import { ELEMENTS, LAYERS, kindName, childKinds, isRel } from '../model/metamode
  *   rename: (id: string, name: string) => void,
  *   move: (id: string, owner: string) => boolean,
  *   remove: (id: string) => void,
+ *   open: (id: string) => void,
  * }} TreeCtx
  */
 
@@ -62,8 +63,14 @@ export function createTree(ctx) {
       onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); addMenu(/** @type {HTMLElement} */ (ev.currentTarget), e); } }, icon('plus')) : null);
 
     row.addEventListener('click', () => { ctx.select(e.id); });
-    row.addEventListener('dblclick', (ev) => { if (!isLayer) { ev.preventDefault(); startRename(e.id); } else toggle(e.id); });
-    row.addEventListener('dragstart', (ev) => { dragging = e.id; ev.dataTransfer?.setData('text/plain', e.name); if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging'); });
+    row.addEventListener('dblclick', (ev) => { ev.preventDefault(); if (isDiagram(e.kind)) ctx.open(e.id); else if (!isLayer) startRename(e.id); else toggle(e.id); });
+    row.addEventListener('dragstart', (ev) => {
+      dragging = e.id;
+      ev.dataTransfer?.setData('text/plain', e.name);
+      ev.dataTransfer?.setData('application/x-loom-id', e.id); // lets a diagram accept the drop
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'copyMove';
+      row.classList.add('dragging');
+    });
     row.addEventListener('dragend', () => { dragging = null; row.classList.remove('dragging'); el.querySelectorAll('.drop-ok,.drop-no').forEach((x) => x.classList.remove('drop-ok', 'drop-no')); });
     row.addEventListener('dragover', (ev) => {
       if (!dragging || dragging === e.id) return;
@@ -142,7 +149,8 @@ export function createTree(ctx) {
         if (e && ctx.expanded.has(e.id) && ctx.model.children(e.id).length) toggle(e.id);
         else if (e?.owner && ctx.model.get(e.owner)?.owner) go(e.owner); // up to the parent, but never to the hidden root
         break;
-      case 'Enter': case 'F2': if (e && !e.layer) { ev.preventDefault(); startRename(e.id); } break;
+      case 'Enter': if (e && isDiagram(e.kind)) { ev.preventDefault(); ctx.open(e.id); } else if (e && !e.layer) { ev.preventDefault(); startRename(e.id); } break;
+      case 'F2': if (e && !e.layer) { ev.preventDefault(); startRename(e.id); } break;
       default: return;
     }
     ev.stopPropagation(); // handled here; keep the global shortcut from running too

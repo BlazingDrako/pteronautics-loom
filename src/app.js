@@ -65,7 +65,7 @@ commands.add({ id: 'edit.redo', title: 'Redo', group: 'Edit', keys: 'Mod+Shift+Z
 commands.add({ id: 'element.rename', title: 'Rename the selected element', group: 'Edit', keys: 'F2', enabled: () => !!ws?.canEditSelection(), run: () => ws?.rename() });
 commands.add({ id: 'element.delete', title: 'Delete the selected element', group: 'Edit', keys: 'Delete', keywords: ['remove'], enabled: () => !!ws?.canEditSelection(), run: () => ws?.remove() });
 commands.add({ id: 'element.deselect', title: 'Clear the selection', group: 'Edit', keys: 'Escape', enabled: () => !!ws?.selected(), run: () => ws?.select(null) });
-for (const kind of Object.keys(ELEMENTS)) {
+for (const kind of Object.keys(ELEMENTS).filter((k) => !ELEMENTS[k].diagram)) {
   commands.add({
     id: `model.new.${kind}`, group: 'Model',
     get title() { return `New ${kindName(kind, notation())}`; },
@@ -74,6 +74,16 @@ for (const kind of Object.keys(ELEMENTS)) {
     run: () => ws?.newElement(kind),
   });
 }
+
+// ---------- diagrams ----------
+commands.add({ id: 'diagram.new.bdd', group: 'Diagram', get title() { return `New ${kindName('bdd', notation())}`; }, keywords: ['bdd', 'structure', 'block', 'create'], enabled: () => !!ws?.canNew('bdd'), run: () => ws?.newDiagram('bdd') });
+const inDiagram = () => !!ws?.activeView();
+commands.add({ id: 'diagram.fit', title: 'Fit the diagram to the window', group: 'Diagram', keywords: ['zoom', 'all'], enabled: inDiagram, run: () => ws?.activeView()?.fit() });
+commands.add({ id: 'diagram.zoomIn', title: 'Zoom in', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomIn() });
+commands.add({ id: 'diagram.zoomOut', title: 'Zoom out', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomOut() });
+commands.add({ id: 'diagram.tidy', title: 'Tidy the diagram layout', group: 'Diagram', keywords: ['auto layout', 'arrange'], enabled: inDiagram, run: () => ws?.activeView()?.tidy() });
+commands.add({ id: 'diagram.related', title: 'Add related blocks to the diagram', group: 'Diagram', keywords: ['parts', 'types', 'generalization', 'show'], enabled: inDiagram, run: () => ws?.activeView()?.addRelated() });
+commands.add({ id: 'diagram.remove', title: 'Remove the selection from the diagram (keep in model)', group: 'Diagram', keywords: ['hide'], enabled: () => !!ws?.activeView()?.selection().length, run: () => ws?.activeView()?.removeFromView() });
 
 /** Model elements as palette items, so typing a name jumps to it. @returns {import('./commands.js').Command[]} */
 function elementItems() {

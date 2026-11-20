@@ -1,7 +1,7 @@
 // The inspector: everything about the selected element, editable in place.
 // With nothing selected it shows the project, display and integration settings.
 import { h, icon } from './dom.js';
-import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel } from '../model/metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel, isDiagram } from '../model/metamodel.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -15,6 +15,7 @@ import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel } from '../
  *   select: (id: string | null) => void,
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
  *   meta: () => { created: string, modified: string },
+ *   open: (id: string) => void,
  * }} InspectorCtx
  */
 
@@ -124,9 +125,15 @@ export function createInspector(ctx) {
       name,
       e.layer ? h('p', { class: 'muted small' }, `${LAYER[e.layer].note}. Add packages and elements with the + button in the browser.`) : null,
       e.layer ? null : h('p', { class: 'help' }, ELEMENTS[e.kind].help),
+      isDiagram(e.kind) ? h('button', { class: 'btn primary sm insp-open', type: 'button', onclick: () => ctx.open(e.id) }, icon('diagram'), 'Open diagram') : null,
+      isDiagram(e.kind) ? h('div', { class: 'kv' }, h('span', {}, 'Shows'), h('span', { class: 'mono' }, `${Object.keys(e.layout?.nodes || {}).length} elements`)) : null,
       e.layer ? null : propFields(e),
       kids.length ? [h('div', { class: 'sec' }, `Contains · ${kids.length}`), h('div', { class: 'chips' }, kids.map((k) => h('button', { class: 'chip', type: 'button', title: k.name, onclick: () => ctx.select(k.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[k.kind].abbr), h('span', { class: 'chip-name' }, k.name))))] : null,
-      e.layer ? null : relationships(e),
+      e.layer || isDiagram(e.kind) ? null : relationships(e),
+      (() => {
+        const ds = m.diagramsShowing(e.id);
+        return ds.length ? [h('div', { class: 'sec' }, `On diagrams · ${ds.length}`), h('div', { class: 'chips' }, ds.map((d) => h('button', { class: 'chip', type: 'button', title: `Open ${d.name}`, onclick: () => ctx.open(d.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[d.kind].abbr), h('span', { class: 'chip-name' }, d.name))))] : null;
+      })(),
       e.layer ? null : h('div', { class: 'insp-actions' },
         h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('element.rename') }, 'Rename'),
         h('button', { class: 'btn sm danger-outline', type: 'button', onclick: () => ctx.commands.run('element.delete') }, 'Delete')),

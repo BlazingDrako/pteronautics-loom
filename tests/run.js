@@ -4,6 +4,7 @@ import { commandsTests } from './loom/commands.tests.js';
 import { fuzzyTests } from './loom/fuzzy.tests.js';
 import { modelTests } from './loom/model.tests.js';
 import { filesTests } from './loom/files.tests.js';
+import { diagramTests } from './loom/diagram.tests.js';
 
 /** @typedef {{ name: string, pass: boolean, detail: string, group?: string }} Result */
 /** @typedef {(name: string, pass: unknown, detail?: unknown) => void} Log */
@@ -20,6 +21,7 @@ const SUITES = [
   ['loom', 'Fuzzy search', fuzzyTests],
   ['loom', 'Model core', modelTests],
   ['loom', 'Files, import, export & projects', filesTests],
+  ['loom', 'Diagrams: placing, boxes, lines, layout', diagramTests],
 ];
 
 /** @param {HTMLElement} out @param {HTMLElement} summary */

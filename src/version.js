@@ -1,2 +1,2 @@
 // Pteronautics Loom version (semantic versioning; 0.x while the model format may still change).
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';

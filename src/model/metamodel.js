@@ -20,6 +20,7 @@
  *   owners: string[],
  *   props: Record<string, PropSpec>,
  *   defaultLayer?: Layer,
+ *   diagram?: boolean,     // a view: it shows other elements and keeps their layout
  *   help: string,
  * }} ElementKind
  * @typedef {{
@@ -107,6 +108,19 @@ export const ELEMENTS = {
     },
     help: 'A quantity with a unit, such as capacity = 16 Ah.',
   },
+  bdd: {
+    names: { sysml: 'Block definition diagram', v2: 'general view', guided: 'Structure diagram' }, abbr: 'bdd', defaultLayer: 'l', diagram: true,
+    owners: ['package'],
+    props: {
+      showParts: { type: 'bool', label: 'Parts compartment', default: true },
+      showValues: { type: 'bool', label: 'Values compartment', default: true },
+      showPorts: { type: 'bool', label: 'Ports compartment', default: true },
+      showRoles: { type: 'bool', label: 'Role names on lines', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows blocks, what they are made of (composition) and what they are kinds of (generalization). A view: removing a block from it never deletes the block.',
+  },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
     owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef'],
@@ -165,6 +179,10 @@ export const LAYERS = /** @type {const} */ ([
 
 /** @param {string} kind */
 export const isRel = (kind) => kind in RELATIONSHIPS;
+/** Is this kind a diagram (a view)? @param {string} kind */
+export const isDiagram = (kind) => !!ELEMENTS[kind]?.diagram;
+/** Every diagram kind. */
+export const DIAGRAM_KINDS = Object.keys(ELEMENTS).filter((k) => ELEMENTS[k].diagram);
 /** @param {string} kind */
 export const isKind = (kind) => kind in ELEMENTS || kind in RELATIONSHIPS;
 
@@ -189,7 +207,7 @@ export function childKinds(owner) {
 export function canRelate(kind, src, tgt) {
   const r = RELATIONSHIPS[kind];
   if (!r) return false;
-  const ok = (/** @type {string[] | '*'} */ list, /** @type {string} */ k) => list === '*' ? (k in ELEMENTS && k !== 'comment') : list.includes(k);
+  const ok = (/** @type {string[] | '*'} */ list, /** @type {string} */ k) => list === '*' ? (k in ELEMENTS && k !== 'comment' && !ELEMENTS[k].diagram) : list.includes(k);
   return ok(r.sources, src) && ok(r.targets, tgt);
 }
 

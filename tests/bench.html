@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pteronautics Loom · benchmarks</title>
+<link rel="stylesheet" href="../css/loom.css">
+<style>
+  body { font: 14px/1.45 system-ui, sans-serif; margin: 24px; background: #0f1115; color: #e6e8ec; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: #9aa3b2; margin: 0 0 14px; }
+  #summary { font: 600 14px ui-monospace, monospace; margin: 12px 0; }
+  .ok { color: #3fb950; } .bad { color: #f85149; }
+  table { border-collapse: collapse; width: 100%; max-width: 980px; }
+  td, th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #252a33; font-size: 13px; vertical-align: top; }
+  th { color: #9aa3b2; font-weight: 600; font-size: 12px; }
+  td.num { font-family: ui-monospace, monospace; text-align: right; white-space: nowrap; }
+  td small { color: #9aa3b2; display: block; }
+</style>
+</head>
+<body>
+<h1>Pteronautics Loom — benchmarks</h1>
+<p>Checked against the performance budgets in PLAN.md. Times vary with the machine; run with this tab in front.</p>
+<div id="summary">Running…</div>
+<table><thead><tr><th>Measure</th><th>Time</th><th>Budget</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<script type="module">
+  import { runBench } from './bench.js';
+  const rows = document.getElementById('rows'), summary = document.getElementById('summary');
+  const results = [];
+  await runBench((r) => {
+    results.push(r);
+    const tr = document.createElement('tr');
+    const pass = r.ms <= r.budget;
+    tr.innerHTML = `<td>${r.name}${r.note ? `<small>${r.note}</small>` : ''}</td><td class="num">${r.ms.toFixed(1)} ms</td><td class="num">≤ ${r.budget} ms</td><td class="${pass ? 'ok' : 'bad'}">${pass ? 'PASS' : 'OVER'}</td>`;
+    rows.append(tr);
+  });
+  const over = results.filter((r) => r.ms > r.budget).length;
+  summary.textContent = `${results.length - over} within budget, ${over} over`;
+  summary.className = over ? 'bad' : 'ok';
+  window.__bench = results;
+</script>
+</body>
+</html>

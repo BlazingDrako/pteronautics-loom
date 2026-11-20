@@ -5,7 +5,7 @@
 // SysML v2 text (.sysml) becomes the main save format in a later build; this JSON form stays
 // as the fast local snapshot and the single-file export.
 import { createModel, ModelError } from './model.js';
-import { ELEMENTS, RELATIONSHIPS, isRel, canOwnKind, canRelate, defaultProps } from './metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, isRel, canOwnKind, canRelate, defaultProps, isDiagram } from './metamodel.js';
 import { isId } from './ids.js';
 
 export const MODEL_FORMAT = 'pteronautics-loom-model';
@@ -63,6 +63,14 @@ export function restore(data) {
       if (!t || !p.kinds.includes(t.kind)) e.props[k] = null; // a dangling reference is cleared, not fatal
     }
   }
+  // diagrams only show elements that exist and can be shown
+  for (const e of list) {
+    if (!e.layout) continue;
+    for (const id of Object.keys(e.layout.nodes)) {
+      const t = seen.get(id);
+      if (!t || !t.owner || isDiagram(t.kind)) delete e.layout.nodes[id];
+    }
+  }
   for (const raw of d.relationships) {
     const r = cleanRelationship(raw);
     const s = seen.get(/** @type {string} */ (r.source)), t = seen.get(/** @type {string} */ (r.target));
@@ -95,7 +103,25 @@ function cleanElement(raw) {
   }
   // same key order as elements created in the app, so saved files diff cleanly
   const layer = ['r', 'f', 'l', 'p'].includes(raw.layer) ? raw.layer : undefined;
-  return /** @type {Element} */ (layer ? { id: raw.id, kind: raw.kind, name, owner, layer, props } : { id: raw.id, kind: raw.kind, name, owner, props });
+  /** @type {Element} */
+  const e = layer ? { id: raw.id, kind: raw.kind, name, owner, layer, props } : { id: raw.id, kind: raw.kind, name, owner, props };
+  if (isDiagram(raw.kind)) e.layout = { nodes: cleanLayout(raw.layout?.nodes) };
+  return e;
+}
+
+/** Keep only well-formed rectangles. @param {any} nodes @returns {Record<string, import('./model.js').Rect>} */
+function cleanLayout(nodes) {
+  /** @type {Record<string, import('./model.js').Rect>} */
+  const out = {};
+  if (!nodes || typeof nodes !== 'object') return out;
+  const num = (/** @type {any} */ v, /** @type {number} */ lo, /** @type {number} */ hi) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : null);
+  for (const [id, r] of Object.entries(nodes)) {
+    if (!isId(id) || !r || typeof r !== 'object') continue;
+    const x = num(r.x, -1e6, 1e6), y = num(r.y, -1e6, 1e6), w = num(r.w, 40, 4000), h = num(r.h, 30, 4000);
+    if (x === null || y === null || w === null || h === null) continue;
+    out[id] = { x, y, w, h };
+  }
+  return out;
 }
 
 /** @param {any} raw @returns {Element} */
