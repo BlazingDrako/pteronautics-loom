@@ -1,7 +1,7 @@
 // User settings: kept in localStorage, with defaults. Integrations are OFF by default.
 
 /**
- * @typedef {'sysml' | 'guided'} Notation
+ * @typedef {'sysml' | 'v2' | 'guided'} Notation
  * @typedef {{
  *   notation: Notation,
  *   inspector: boolean,
@@ -25,7 +25,7 @@ export function sanitize(raw) {
   const d = defaults();
   if (!raw || typeof raw !== 'object') return d;
   const r = /** @type {Record<string, any>} */ (raw);
-  if (r.notation === 'sysml' || r.notation === 'guided') d.notation = r.notation;
+  if (r.notation === 'sysml' || r.notation === 'v2' || r.notation === 'guided') d.notation = r.notation;
   if (typeof r.inspector === 'boolean') d.inspector = r.inspector;
   if (r.integrations && typeof r.integrations.works === 'boolean') d.integrations.works = r.integrations.works;
   return d;

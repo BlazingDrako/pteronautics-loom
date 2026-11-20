@@ -25,6 +25,10 @@ export function commandsTests(log) {
   log('Mod+K does not match Ctrl+K on macOS', !matchKeys('Mod+K', ev({ key: 'k', ctrlKey: true }), true));
   log('"?" matches Shift+/ (the key is "?")', matchKeys('?', ev({ key: '?', shiftKey: true }), true));
   log('"?" does not match ⌘?', !matchKeys('?', ev({ key: '?', shiftKey: true, metaKey: true }), true));
+  log('Mod+Z does not fire on Mod+Shift+Z', !matchKeys('Mod+Z', ev({ key: 'Z', metaKey: true, shiftKey: true }), true));
+  log('Mod+Shift+Z matches redo', matchKeys('Mod+Shift+Z', ev({ key: 'z', metaKey: true, shiftKey: true }), true));
+  log('Backspace also triggers Delete', matchKeys('Delete', ev({ key: 'Backspace' }), true));
+  log('F2 matches', matchKeys('F2', ev({ key: 'F2' }), false));
   log('Alt must match exactly', !matchKeys('Mod+K', ev({ key: 'k', metaKey: true, altKey: true }), true));
   log('forEvent finds the bound command', reg.forEvent(ev({ key: 'K', metaKey: true }), true)?.id === 'a');
   log('forEvent ignores unbound keys', reg.forEvent(ev({ key: 'j', metaKey: true }), true) === undefined);

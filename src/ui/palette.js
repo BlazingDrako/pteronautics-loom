@@ -10,11 +10,14 @@ let openEl = null;
 
 export function isPaletteOpen() { return openEl !== null; }
 
-/** @param {CommandRegistry} commands */
-export function openPalette(commands) {
+/**
+ * @param {CommandRegistry} commands
+ * @param {() => Command[]} [extra] more items (such as model elements) shown only when the user types
+ */
+export function openPalette(commands, extra) {
   if (openEl) { openEl.querySelector('input')?.focus(); return; }
   const returnFocus = /** @type {HTMLElement | null} */ (document.activeElement);
-  const input = h('input', { type: 'text', placeholder: 'Type a command', 'aria-label': 'Command', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list', autocomplete: 'off', spellcheck: 'false' });
+  const input = h('input', { type: 'text', placeholder: extra ? 'Find an element or type a command' : 'Type a command', 'aria-label': 'Command', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list', autocomplete: 'off', spellcheck: 'false' });
   const list = h('ul', { class: 'palette-list', id: 'palette-list', role: 'listbox' });
   let active = 0;
   /** @type {{ item: Command, hits: number[] }[]} */
@@ -28,7 +31,8 @@ export function openPalette(commands) {
   };
   const paint = () => {
     const all = commands.list();
-    shown = input.value.trim() ? rank(input.value, all, (c) => c.title, (c) => c.keywords || []) : all.map((item) => ({ item, hits: [] }));
+    const q = input.value.trim();
+    shown = q ? rank(q, [...all, ...(extra ? extra() : [])], (c) => c.title, (c) => c.keywords || []).slice(0, 60) : all.map((item) => ({ item, hits: [] }));
     active = Math.min(active, Math.max(0, shown.length - 1));
     list.replaceChildren(...shown.map(({ item, hits }, i) => {
       const off = item.enabled ? !item.enabled() : false;
@@ -49,7 +53,7 @@ export function openPalette(commands) {
     const pick = shown[i]?.item;
     if (!pick || (pick.enabled && !pick.enabled())) return;
     close();
-    commands.run(pick.id);
+    if (commands.get(pick.id)) commands.run(pick.id); else pick.run();
   };
   const close = () => { back.remove(); openEl = null; returnFocus?.focus?.(); };
 

@@ -16,6 +16,7 @@ export function settingsTests(log) {
 
   log('Garbage input falls back to defaults', JSON.stringify(sanitize('nonsense')) === JSON.stringify(d));
   log('Unknown notation is ignored', sanitize({ notation: 'uml' }).notation === 'sysml');
+  log('SysML v2 notation is accepted', sanitize({ notation: 'v2' }).notation === 'v2');
   log('Wrongly typed values are ignored', sanitize({ inspector: 'yes', integrations: { works: 1 } }).integrations.works === false);
   log('Unknown keys are dropped', !('evil' in sanitize({ evil: true })));
 

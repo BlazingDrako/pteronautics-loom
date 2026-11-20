@@ -121,8 +121,8 @@ Each milestone ends in something usable and committed. Sizes are relative: S = d
 
 | # | Milestone | Size | Done when |
 | --- | --- | --- | --- |
-| M0 | **Skeleton** | S | The repo, `serve.py` (8800), shell (sidebar, workspace, inspector), tokens and brand, theme switch, test page, `jsconfig.json` with type checking, LICENSE/COPYRIGHT, README. |
-| M1 | **Model core** | M | Metamodel, store, transactions and undo, autosave, JSON snapshot. Model browser (create, rename, delete, drag to re-parent), inspector editing, command palette. Tests for all of it. |
+| M0 ✓ | **Skeleton** (done in 0.1.0) | S | The repo, `serve.py` (8800), shell (sidebar, workspace, inspector), tokens and brand, theme switch, test page, `jsconfig.json` with type checking, LICENSE/COPYRIGHT, README. |
+| M1 ✓ | **Model core** (done in 0.2.0, with the Home page) | M | Metamodel, store, transactions and undo, autosave, JSON snapshot. Model browser (create, rename, delete, drag to re-parent), inspector editing, command palette. Tests for all of it. |
 | M2 | **Diagram engine + bdd** | L | SVG renderer with pan, zoom and culling. Select, move, resize, lasso, snapping and guides. Blocks with compartments, composition and generalization edges, orthogonal routing, auto-layout. View options, SysML/Guided notation. Benchmarks pass. |
 | M3 | **ibd and interfaces** | L | Nested parts, proxy/full/conjugated ports, interface blocks, smart connect, item flows, drag-into nesting, collapse/expand, port compatibility checks. |
 | M4 | **Requirements and traceability** | M | Requirement diagram, requirements table, dependency matrix. All requirement relationships, ID schemes, the RFLP trace view, coverage metrics, the Systems V home. |

@@ -2,6 +2,8 @@
 import { settingsTests } from './loom/settings.tests.js';
 import { commandsTests } from './loom/commands.tests.js';
 import { fuzzyTests } from './loom/fuzzy.tests.js';
+import { modelTests } from './loom/model.tests.js';
+import { filesTests } from './loom/files.tests.js';
 
 /** @typedef {{ name: string, pass: boolean, detail: string, group?: string }} Result */
 /** @typedef {(name: string, pass: unknown, detail?: unknown) => void} Log */
@@ -16,6 +18,8 @@ const SUITES = [
   ['loom', 'Settings', settingsTests],
   ['loom', 'Commands & shortcuts', commandsTests],
   ['loom', 'Fuzzy search', fuzzyTests],
+  ['loom', 'Model core', modelTests],
+  ['loom', 'Files, import, export & projects', filesTests],
 ];
 
 /** @param {HTMLElement} out @param {HTMLElement} summary */

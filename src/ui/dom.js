@@ -9,7 +9,10 @@ function apply(el, attrs) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
-    else if (k === 'style' && typeof v === 'object') Object.assign(/** @type {HTMLElement} */ (el).style, v);
+    else if (k === 'style' && typeof v === 'object') {
+      const st = /** @type {HTMLElement} */ (el).style;
+      for (const [p, val] of Object.entries(v)) { if (p.startsWith('--')) st.setProperty(p, String(val)); else /** @type {any} */ (st)[p] = val; }
+    }
     else if (k === 'html') el.innerHTML = v;
     else el.setAttribute(k, v === true ? '' : String(v));
   }
@@ -61,6 +64,15 @@ const ICONS = {
   plus: '<path d="M12 5 V19 M5 12 H19"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2 V4 M12 20 V22 M2 12 H4 M20 12 H22 M4.9 4.9 L6.3 6.3 M17.7 17.7 L19.1 19.1 M4.9 19.1 L6.3 17.7 M17.7 6.3 L19.1 4.9"/>',
   moon: '<path d="M20 14.5 A8 8 0 1 1 9.5 4 A6.5 6.5 0 0 0 20 14.5 Z"/>',
+  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  upload: '<path d="M12 16 V4 M7 9 L12 4 L17 9 M4 20 H20"/>',
+  x: '<path d="M6 6 L18 18 M18 6 L6 18"/>',
+  undo: '<path d="M9 14 L4 9 L9 4"/><path d="M4 9 H14 a6 6 0 0 1 0 12 H11"/>',
+  redo: '<path d="M15 14 L20 9 L15 4"/><path d="M20 9 H10 a6 6 0 0 0 0 12 H13"/>',
+  chevRight: '<path d="M9 6 L15 12 L9 18"/>',
+  chevDown: '<path d="M6 9 L12 15 L18 9"/>',
+  grid: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
+  vee: '<path d="M3 5 L12 19 L21 5"/><path d="M7.5 5 H3 M21 5 H16.5"/>',
   command: '<path d="M9 6 a3 3 0 1 0-3 3 H18 a3 3 0 1 0-3-3 V18 a3 3 0 1 0 3-3 H6 a3 3 0 1 0 3 3 Z"/>',
 };
 /** @param {string} name @returns {SVGElement} */
