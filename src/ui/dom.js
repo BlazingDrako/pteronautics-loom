@@ -1,0 +1,111 @@
+// Small DOM helpers (no framework), the same shape as Pteronautics Works' src/ui/dom.js.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** @typedef {Record<string, any> | null | undefined} Attrs */
+/** @typedef {Node | string | number | boolean | null | undefined | Kid[]} Kid */
+
+/** @param {Element} el @param {Attrs} attrs */
+function apply(el, attrs) {
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+    else if (k === 'style' && typeof v === 'object') Object.assign(/** @type {HTMLElement} */ (el).style, v);
+    else if (k === 'html') el.innerHTML = v;
+    else el.setAttribute(k, v === true ? '' : String(v));
+  }
+}
+/** @param {Element} el @param {Kid[]} kids */
+function append(el, kids) {
+  for (const c of kids.flat(Infinity)) {
+    if (c === null || c === undefined || c === false || c === true) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+}
+/**
+ * Create an HTML element.
+ * @template {keyof HTMLElementTagNameMap} K
+ * @param {K} tag @param {Attrs} [attrs] @param {...Kid} kids
+ * @returns {HTMLElementTagNameMap[K]}
+ */
+export function h(tag, attrs, ...kids) { const el = document.createElement(tag); apply(el, attrs); append(el, kids); return el; }
+/**
+ * Create an SVG element.
+ * @param {string} tag @param {Attrs} [attrs] @param {...Kid} kids
+ * @returns {SVGElement}
+ */
+export function s(tag, attrs, ...kids) { const el = /** @type {SVGElement} */ (document.createElementNS(SVG_NS, tag)); apply(el, attrs); append(el, kids); return el; }
+
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let toastTimer;
+/** Show a short message at the bottom of the window. @param {string} msg @param {boolean} [err] */
+export function toast(msg, err = false) {
+  document.querySelector('.toast')?.remove();
+  const t = h('div', { class: 'toast' + (err ? ' err' : ''), role: 'status' }, msg);
+  document.body.append(t);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), err ? 6000 : 2600);
+}
+
+// Line icons (stroke = currentColor)
+/** @type {Record<string, string>} */
+const ICONS = {
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  home: '<path d="M3 11 L12 4 L21 11"/><path d="M6 9.5 V20 H18 V9.5"/>',
+  diagram: '<rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="14" y="14" width="7" height="6" rx="1.5"/><path d="M10 7 H17 V14"/>',
+  trace: '<circle cx="5" cy="6" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="18" r="2"/><path d="M6.5 7.5 L10.5 10.5 M13.5 13.5 L17.5 16.5"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10 H21 M9 10 V20"/>',
+  matrix: '<path d="M4 4 H20 V20 H4 Z M4 9.3 H20 M4 14.6 H20 M9.3 4 V20 M14.6 4 V20"/>',
+  book: '<path d="M4 5 a2 2 0 0 1 2-2 H19 V19 H6 a2 2 0 0 0-2 2 Z"/><path d="M4 19 V5"/>',
+  plug: '<path d="M9 3 V8 M15 3 V8 M6 8 H18 V11 a6 6 0 0 1-12 0 Z M12 17 V21"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4 V20"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10 H6.01 M10 10 H10.01 M14 10 H14.01 M18 10 H18.01 M7 14 H17"/>',
+  plus: '<path d="M12 5 V19 M5 12 H19"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2 V4 M12 20 V22 M2 12 H4 M20 12 H22 M4.9 4.9 L6.3 6.3 M17.7 17.7 L19.1 19.1 M4.9 19.1 L6.3 17.7 M17.7 6.3 L19.1 4.9"/>',
+  moon: '<path d="M20 14.5 A8 8 0 1 1 9.5 4 A6.5 6.5 0 0 0 20 14.5 Z"/>',
+  command: '<path d="M9 6 a3 3 0 1 0-3 3 H18 a3 3 0 1 0-3-3 V18 a3 3 0 1 0 3-3 H6 a3 3 0 1 0 3 3 Z"/>',
+};
+/** @param {string} name @returns {SVGElement} */
+export function icon(name) {
+  const el = s('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+  el.innerHTML = ICONS[name] || '';
+  return el;
+}
+
+// The Pteronautics mark: the same drawing as Atlas and Works, colored by the theme
+export const BRAND_SVG = `<svg viewBox="0 4 100 100" aria-hidden="true">
+<path class="bm-fill" d="M50 10 L54 24 L53 36 C62 35 70 33 78 31 C86 36 92 44 96 54 C80 52 68 56 60 66 L56 76 L50 70 L44 76 L40 66 C32 56 20 52 4 54 C8 44 14 36 22 31 C30 33 38 35 47 36 L46 24 Z"/>
+<path class="bm-line" d="M50 10 L54 24 L53 36 C62 35 70 33 78 31 C86 36 92 44 96 54 C80 52 68 56 60 66 L56 76 L50 70 L44 76 L40 66 C32 56 20 52 4 54 C8 44 14 36 22 31 C30 33 38 35 47 36 L46 24 Z"/>
+<path class="bm-line" d="M50 72 L50 84"/>
+<path class="bm-flame" d="M50 82 L54 89 L50 97 L46 89 Z"/></svg>`;
+export function brandMark() { const el = h('span', { class: 'brand-mark' }); el.innerHTML = BRAND_SVG; return el; }
+export function brand() {
+  return h('a', { class: 'brand', href: '#/', 'aria-label': 'Pteronautics Loom home' }, brandMark(),
+    h('div', {}, h('div', { class: 'brand-name' }, 'Pteronautics'), h('div', { class: 'brand-sub brand-product' }, 'Loom')));
+}
+
+// ---------- theme (same behaviour as Atlas and Works: system default, or a stored choice) ----------
+const THEME_KEY = 'loom-theme';
+/** @returns {'light' | 'dark'} */
+export function resolvedTheme() {
+  const t = document.documentElement.dataset.theme;
+  if (t === 'light' || t === 'dark') return t;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+export function applyTheme() { document.documentElement.dataset.resolvedTheme = resolvedTheme(); dispatchEvent(new Event('themechange')); }
+export function initTheme() {
+  try { const t = localStorage.getItem(THEME_KEY); if (t) document.documentElement.dataset.theme = t; } catch { /* storage blocked */ }
+  applyTheme();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+}
+export function toggleTheme() {
+  const t = resolvedTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem(THEME_KEY, t); } catch { /* storage blocked */ }
+  applyTheme();
+}
+
+/** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
+export const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+/** Format a shortcut like "Mod+K" for this platform. @param {string} combo */
+export function formatKeys(combo) {
+  return combo.split('+').map((k) => k === 'Mod' ? (IS_MAC ? '⌘' : 'Ctrl') : k === 'Shift' ? (IS_MAC ? '⇧' : 'Shift') : k === 'Alt' ? (IS_MAC ? '⌥' : 'Alt') : k).join(IS_MAC ? '' : '+');
+}

@@ -1,0 +1,16 @@
+{
+  "//": "Type checking only. Loom runs without a build step; this file lets `npx -p typescript tsc --noEmit -p jsconfig.json` check the JSDoc types.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.js", "tests/**/*.js"]
+}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pteronautics Loom</title>
+<meta name="description" content="Pteronautics Loom: model-based systems engineering with SysML, in the browser.">
+<meta name="theme-color" content="#0b0d11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/SpaceGrotesk.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/loom.css">
+<script>try { var t = localStorage.getItem('loom-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) { }</script>
+</head>
+<body>
+<div id="app"></div>
+<noscript>Pteronautics Loom needs JavaScript. Run <code>python3 serve.py</code> and open http://localhost:8800.</noscript>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
