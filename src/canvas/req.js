@@ -89,6 +89,141 @@ export function reqRelatedOf(m, id) {
   return { above, below };
 }
 
+/**
+ * Lay a requirement diagram out top-down, one row per level:
+ *   - requirements that stand alone but trace to the tree (risks, say) in a row on top,
+ *     each over what it traces to;
+ *   - the requirement tree: each requirement centered over the ones inside it (or derived
+ *     from it), a row per level; a long list of leaf requirements wraps into rows;
+ *   - the blocks and functions that satisfy or refine them, spread along one row;
+ *   - the test cases at the bottom, each under what it verifies.
+ * Widths and heights come from `nodes`; returns the new rectangles.
+ * @param {Model} m @param {{ id: string, w: number, h: number }[]} nodes @param {{ x?: number, y?: number }} [o]
+ * @returns {Record<string, import('../model/model.js').Rect>}
+ */
+export function layoutRequirements(m, nodes, o = {}) {
+  const GAP = 34, FAM = 120, ROW = 110, WRAP = 7, x0 = o.x ?? 40, y0 = o.y ?? 40;
+  const size = new Map(nodes.map((n) => [n.id, n]));
+  const isReq = (/** @type {string} */ id) => m.get(id)?.kind === 'requirement';
+  // model browser order
+  /** @type {Map<string, number>} */
+  const order = new Map();
+  const walk = (/** @type {Element} */ e) => { order.set(e.id, order.size); for (const c of m.children(e.id)) walk(c); };
+  walk(m.root());
+  const ord = (/** @type {string} */ a, /** @type {string} */ b) => (order.get(a) ?? 0) - (order.get(b) ?? 0);
+  const reqs = nodes.map((n) => n.id).filter(isReq).sort(ord);
+
+  // the tree: a requirement hangs under the requirement it sits in, else one it derives from
+  /** @type {Map<string, string>} */
+  const parent = new Map();
+  for (const id of reqs) {
+    const own = m.get(id)?.owner;
+    if (own && size.has(own) && isReq(own)) { parent.set(id, own); continue; }
+    const d = m.relsFrom(id).find((r) => r.kind === 'derive' && r.target && size.has(r.target) && isReq(r.target));
+    if (d?.target) parent.set(id, d.target);
+  }
+  for (const id of reqs) { // derive loops: cut where they close
+    const seen = new Set([id]);
+    for (let p = parent.get(id); p; p = parent.get(p)) { if (p === id) { parent.delete(id); break; } if (seen.has(p)) break; seen.add(p); }
+  }
+  /** @type {Map<string, string[]>} */
+  const kids = new Map(reqs.map((id) => [id, []]));
+  for (const id of reqs) { const p = parent.get(id); if (p) kids.get(p)?.push(id); }
+  const roots = reqs.filter((id) => !parent.has(id));
+  /** @param {string} id */
+  const linksTo = (id) => m.relsFrom(id).filter((r) => r.target && r.target !== id && size.has(r.target) && (r.kind in REQ_RELS)).map((r) => /** @type {string} */ (r.target));
+  const inTree = (/** @type {string} */ id) => isReq(id) && (parent.has(id) || !!kids.get(id)?.length);
+  const side = roots.filter((id) => !kids.get(id)?.length && linksTo(id).some(inTree));
+  const trees = roots.filter((id) => !side.includes(id));
+
+  // row heights by level
+  /** @type {number[]} */
+  const rowH = [];
+  const measure = (/** @type {string} */ id, /** @type {number} */ dep) => {
+    rowH[dep] = Math.max(rowH[dep] || 0, size.get(id)?.h || 0);
+    for (const c of kids.get(id) || []) measure(c, dep + 1);
+  };
+  trees.forEach((id) => measure(id, 0));
+  const sideH = Math.max(0, ...side.map((id) => size.get(id)?.h || 0));
+  const top = side.length ? y0 + sideH + ROW : y0;
+  /** @type {number[]} */
+  const rowY = [];
+  rowH.forEach((h, i) => { rowY[i] = i ? rowY[i - 1] + rowH[i - 1] + ROW : top; });
+
+  /** @type {Record<string, import('../model/model.js').Rect>} */
+  const out = {};
+  const sz = (/** @type {string} */ id) => /** @type {{ w: number, h: number }} */ (size.get(id));
+  /** Lay out a subtree with its left edge at x; returns its width. @param {string} id @param {number} x @param {number} dep @returns {number} */
+  const place = (id, x, dep) => {
+    const { w, h } = sz(id);
+    const ch = kids.get(id) || [];
+    if (!ch.length) { out[id] = { x, y: rowY[dep], w, h }; return w; }
+    if (ch.length > WRAP && ch.every((c) => !kids.get(c)?.length)) {
+      const colW = Math.max(...ch.map((c) => sz(c).w));
+      let y = rowY[dep + 1];
+      for (let i = 0; i < ch.length; i += WRAP) {
+        const row = ch.slice(i, i + WRAP);
+        row.forEach((c, k) => { out[c] = { x: x + k * (colW + GAP), y, w: sz(c).w, h: sz(c).h }; });
+        y += Math.max(...row.map((c) => sz(c).h)) + 50;
+      }
+      const span = Math.max(w, Math.min(ch.length, WRAP) * (colW + GAP) - GAP);
+      out[id] = { x: x + Math.round(span / 2 - w / 2), y: rowY[dep], w, h };
+      return span;
+    }
+    let cx = x;
+    for (const c of ch) cx += place(c, cx, dep + 1) + GAP;
+    const span = cx - GAP - x;
+    const first = out[ch[0]], last = out[ch[ch.length - 1]];
+    const mid = (first.x + first.w / 2 + last.x + last.w / 2) / 2;
+    out[id] = { x: Math.round(mid - w / 2), y: rowY[dep], w, h };
+    if (out[id].x < x) { // a parent wider than its children: shift the subtree right
+      const dx = x - out[id].x;
+      const move = (/** @type {string} */ n) => { out[n].x += dx; (kids.get(n) || []).forEach(move); };
+      move(id);
+    }
+    return Math.max(span, w);
+  };
+  let x = x0;
+  for (const id of trees) x += place(id, x, 0) + FAM;
+  const width = Math.max(0, x - FAM - x0);
+  let bottom = Math.max(y0, ...Object.values(out).map((r) => r.y + r.h));
+
+  const centerOf = (/** @type {string[]} */ ts) => {
+    const cs = ts.filter((t) => out[t]).map((t) => out[t].x + out[t].w / 2).sort((a, b) => a - b);
+    return cs.length ? (cs[0] + cs[cs.length - 1]) / 2 : Infinity;
+  };
+  /** One row, each element as near the middle of what it links to as the others allow. @param {string[]} ids @param {number} y @param {number} gap */
+  const row = (ids, y, gap) => {
+    const list = ids.map((id) => ({ id, c: centerOf(linksTo(id)) })).sort((a, b) => a.c - b.c || ord(a.id, b.id));
+    let prev = -Infinity, end = x0;
+    for (const { id, c } of list) {
+      const { w, h } = sz(id);
+      const nx = Number.isFinite(c) ? Math.max(Math.round(c - w / 2), prev) : Math.max(prev, end);
+      out[id] = { x: nx, y, w, h };
+      prev = nx + w + gap; end = prev;
+    }
+  };
+
+  // standalone requirements that trace to the tree, on top
+  row(side, y0, 60);
+  // what satisfies or refines them: a row spread across the tree, in the order of what they link to
+  const design = nodes.map((n) => n.id).filter((id) => !isReq(id) && m.get(id)?.kind !== 'testCase');
+  if (design.length) {
+    const y = bottom + ROW * 1.6;
+    const maxW = Math.max(...design.map((id) => sz(id).w));
+    const slot = width / design.length;
+    if (slot >= maxW + GAP * 2) {
+      design.map((id) => ({ id, c: centerOf(linksTo(id)) })).sort((a, b) => a.c - b.c || ord(a.id, b.id))
+        .forEach(({ id }, k) => { const { w, h } = sz(id); out[id] = { x: Math.round(x0 + slot * (k + 0.5) - w / 2), y, w, h }; });
+    } else row(design, y, GAP * 2);
+    bottom = y + Math.max(...design.map((id) => sz(id).h));
+  }
+  // test cases at the bottom, under what they verify
+  const tests = nodes.map((n) => n.id).filter((id) => m.get(id)?.kind === 'testCase');
+  row(tests, bottom + ROW * 1.6, 40);
+  return out;
+}
+
 /** Relationships a drag from box `a` to box `b` can make, most specific first. @param {Model} m @param {string} a @param {string} b */
 export const reqLinkKinds = (m, a, b) => ['satisfy', 'verify', 'derive', 'refine', 'copy', 'trace'].filter((k) => m.canLink(k, a, b));
 
@@ -100,6 +235,8 @@ export const reqKind = {
   edgesFor: reqEdgesFor,
   related: reqRelatedOf,
   linkKinds: reqLinkKinds,
+  /** @param {Model} m @param {Element} _d @param {{ id: string, w: number, h: number }[]} nodes */
+  tidy: (m, _d, nodes) => layoutRequirements(m, nodes),
   add: [
     { kind: 'requirement', label: 'Requirement', title: 'Add a new requirement to the model and this diagram' },
     { kind: 'testCase', label: 'Test case', title: 'Add a new test case' },

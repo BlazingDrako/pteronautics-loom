@@ -1,7 +1,7 @@
 // Put elements on a new diagram and lay them out. Used when a diagram is created and by
 // the Kestrel sample.
 import { nodeContent, naturalSize, heightAt, edgesFor, canShow } from './bdd.js';
-import { reqNodeContent, reqEdgesFor, reqRelatedOf, canShowReq } from './req.js';
+import { reqNodeContent, reqRelatedOf, canShowReq, layoutRequirements } from './req.js';
 import { requirementsIn } from '../model/trace.js';
 import { layered } from './layout.js';
 
@@ -57,10 +57,5 @@ export function populateReq(m, tx, diagramId, notation = 'sysml', ids) {
     const w = Math.max(m.get(id)?.kind === 'requirement' ? 250 : 180, Math.ceil(naturalSize(c).w / 10) * 10);
     return { id, w, h: heightAt(c, w) };
   });
-  const edges = reqEdgesFor(m, show).map((e) => ({ from: e.from, to: e.to, kind: e.kind }));
-  const pos = layered(nodes, edges, { gapY: 90 });
-  /** @type {Record<string, import('../model/model.js').Rect>} */
-  const patch = {};
-  for (const n of nodes) { const p = pos.get(n.id); if (p) patch[n.id] = { x: p.x, y: p.y, w: n.w, h: n.h }; }
-  tx.place(diagramId, patch);
+  tx.place(diagramId, layoutRequirements(m, nodes));
 }

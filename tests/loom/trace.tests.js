@@ -3,7 +3,7 @@ import { snapshot, restore } from '../../src/model/serialize.js';
 import { buildKestrel } from '../../src/model/sample.js';
 import { ELEMENTS, RELATIONSHIPS, childKinds, isDiagram } from '../../src/model/metamodel.js';
 import { idPrefixFor, nextReqId, renumber, duplicateIds, levelOf, requirementStatus, coverage, threadOf, step, requirementsIn, pct } from '../../src/model/trace.js';
-import { reqNodeContent, reqEdgesFor, reqLinkKinds, canShowReq } from '../../src/canvas/req.js';
+import { reqNodeContent, reqEdgesFor, reqLinkKinds, canShowReq, layoutRequirements } from '../../src/canvas/req.js';
 import { naturalSize, heightAt } from '../../src/canvas/bdd.js';
 import { wrapLines, textWidth, FONTS } from '../../src/canvas/measure.js';
 import { parseColumns, formatColumns, tableRows, toCsv, cellText, DEFAULT_COLUMNS } from '../../src/views/table.js';
@@ -129,6 +129,41 @@ export function traceTests(log) {
   const nest = createModel();
   const nr = nest.transact('Nest', (tx) => { const p = tx.create('requirement', { owner: nest.layers()[0].id, name: 'P' }); const q = tx.create('requirement', { owner: p, name: 'Q' }); return { p, q }; });
   log('A requirement inside a requirement is drawn as containment', reqEdgesFor(nest, new Set([nr.p, nr.q])).some((e) => e.kind === 'containment' && e.from === nr.p && e.to === nr.q));
+
+  // ---------- tidy: top-down requirement layout ----------
+  const tm = createModel();
+  const t = tm.transact('Tree', (tx) => {
+    const R = tm.layers()[0].id, L = tm.layers()[2].id;
+    const p = tx.create('requirement', { owner: R, name: 'P' });
+    const a = tx.create('requirement', { owner: p, name: 'A' });
+    const b = tx.create('requirement', { owner: p, name: 'B' });
+    const a1 = tx.create('requirement', { owner: a, name: 'A1' });
+    const d = tx.create('requirement', { owner: R, name: 'D' });
+    const risk = tx.create('requirement', { owner: R, name: 'Risk' });
+    const lone = tx.create('requirement', { owner: R, name: 'Lone' });
+    const blk = tx.create('partDef', { owner: L, name: 'Blk' });
+    const tc = tx.create('testCase', { owner: R, name: 'T' });
+    const wide = tx.create('requirement', { owner: R, name: 'W' });
+    const leaves = Array.from({ length: 10 }, (_, i) => tx.create('requirement', { owner: wide, name: `W${i}` }));
+    tx.link('derive', d, b); tx.link('trace', risk, p); tx.link('satisfy', blk, a1); tx.link('verify', tc, b);
+    return { p, a, b, a1, d, risk, lone, blk, tc, wide, leaves };
+  });
+  const all = [t.p, t.a, t.b, t.a1, t.d, t.risk, t.lone, t.blk, t.tc, t.wide, ...t.leaves];
+  const L = layoutRequirements(tm, all.map((id) => ({ id, w: 200, h: tm.get(id)?.kind === 'requirement' ? 100 : 50 })));
+  const cxOf = (/** @type {string} */ id) => L[id].x + L[id].w / 2;
+  log('Tidy places every element it is given', all.every((id) => L[id]));
+  log('Tidy: a requirement sits a row above the ones inside it, centered over them',
+    L[t.p].y < L[t.a].y && L[t.a].y === L[t.b].y && L[t.a].y < L[t.a1].y && Math.abs(cxOf(t.p) - (cxOf(t.a) + cxOf(t.b)) / 2) < 1);
+  log('Tidy: a derived requirement hangs under the one it derives from', L[t.d].y > L[t.b].y && Math.abs(cxOf(t.d) - cxOf(t.b)) < 1);
+  log('Tidy: a standalone requirement that traces to the tree goes in a row on top', L[t.risk].y < L[t.p].y && L[t.lone].y === L[t.p].y);
+  const reqBottom = Math.max(...all.filter((id) => tm.get(id)?.kind === 'requirement' && id !== t.risk).map((id) => L[id].y + L[id].h));
+  log('Tidy: blocks go in a row under the requirements, test cases under the blocks', L[t.blk].y > reqBottom && L[t.tc].y > L[t.blk].y + L[t.blk].h);
+  log('Tidy: a test case sits under what it verifies', Math.abs(cxOf(t.tc) - cxOf(t.b)) < 1);
+  const rowsOf = new Set(t.leaves.map((id) => L[id].y));
+  log('Tidy: a long list of leaf requirements wraps into rows of at most 7', rowsOf.size === 2 && [...rowsOf].every((y) => t.leaves.filter((id) => L[id].y === y).length <= 7));
+  const overlap = (/** @type {Record<string, any>} */ rs) => { const v = Object.values(rs); return v.some((a, i) => v.slice(i + 1).some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h)); };
+  log('Tidy: no two boxes overlap', !overlap(L));
+  log('Tidy: the sample requirement diagram has no overlapping boxes', !overlap(layoutRequirements(k, Object.entries(rd.layout.nodes).map(([id, r]) => ({ id, w: /** @type {any} */ (r).w, h: /** @type {any} */ (r).h })))));
 
   // ---------- requirements table ----------
   log('Columns parse, skipping unknown and repeated ones and clamping widths', formatColumns(parseColumns('id:100,bogus:50,id:200,name:5,text:9999')) === 'id:100,name:200,text:380');
