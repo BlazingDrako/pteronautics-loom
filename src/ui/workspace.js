@@ -33,6 +33,8 @@ import { createProblemsPanel, SEV_ICON } from './problems.js';
 import { openRulesDialog } from './rulesdlg.js';
 import { openPreferences } from './prefs.js';
 import { presetById, presetProps } from '../custom/presets.js';
+import { createLibraryView } from '../views/library.js';
+import { importRequirements, exportRequirements, documentDialog, sendToApi } from './interop.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -44,10 +46,10 @@ const VIEWS = [
   { id: 'overview', name: 'Model overview', icon: 'grid', ready: true },
   { id: 'diagrams', name: 'Diagrams', icon: 'diagram', ready: true },
   { id: 'tables', name: 'Tables & matrices', icon: 'table', ready: true },
-  { id: 'library', name: 'SysML library', icon: 'book', ready: false },
+  { id: 'v:library', name: 'SysML library', icon: 'book', ready: true },
 ];
 /** Project views that are not model elements. */
-const PROJECT_VIEWS = /** @type {Record<string, { name: string, icon: string }>} */ ({ 'v:home': { name: 'Systems V', icon: 'vee' }, 'v:trace': { name: 'RFLP trace', icon: 'trace' } });
+const PROJECT_VIEWS = /** @type {Record<string, { name: string, icon: string }>} */ ({ 'v:home': { name: 'Systems V', icon: 'vee' }, 'v:trace': { name: 'RFLP trace', icon: 'trace' }, 'v:library': { name: 'SysML library', icon: 'book' } });
 /** Tabs for kinds of view. */
 const KIND_ICON = /** @type {Record<string, string>} */ ({ table: 'table', matrix: 'matrix', req: 'req', act: 'trace', stm: 'diagram', sd: 'list', uc: 'diagram', pkg: 'folder', par: 'sigma' });
 /** What a diagram must be made inside, when nothing suitable is selected. */
@@ -222,6 +224,7 @@ export function mountWorkspace(root, ctx) {
       const kind = model.get(id)?.kind;
       if (id === 'v:home') v = createVHomeView({ ...base, create: (k, owner, props) => create(k, owner, props), openTrace: () => openDiagram('v:trace'), openTable: () => openOrCreate('table'), openMatrix: () => openOrCreate('matrix') });
       else if (id === 'v:trace') v = createTraceView(base);
+      else if (id === 'v:library') v = createLibraryView(base);
       else if (kind === 'table') v = createTableView(base);
       else if (kind === 'matrix') v = createMatrixView(base);
       else if (kind === 'ibd') v = Object.assign(createIbdView(base), { canvas: true });
@@ -666,6 +669,16 @@ export function mountWorkspace(root, ctx) {
     validator,
     openRules,
     newProfile,
+    /** Open the SysML library, at an entry or the entry for an element kind (default: the selection's). @param {string} [what] */
+    openLibrary(what) {
+      openDiagram('v:library');
+      const k = what || (selected ? model.get(selected)?.kind : undefined);
+      if (k) views.get('v:library')?.show(k);
+    },
+    importRequirements: () => importRequirements(model, selected, edit),
+    exportRequirements: () => exportRequirements(model, selected),
+    generateDocument: () => documentDialog(model, notation()),
+    sendToApi: () => sendToApi(model),
     /** Go to the next (1) or previous (-1) problem. @param {1 | -1} dir */
     stepProblem(dir) {
       if (!validator.report().problems.length) { toast('No problems'); return; }

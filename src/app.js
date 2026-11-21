@@ -62,7 +62,15 @@ commands.add({
   run: () => { if (!ws) return; ws.validator.now(); const c = ws.validator.report().counts; toast(c.error + c.warning + c.info ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes (${Math.round(ws.validator.report().ms)} ms)` : `No problems (${Math.round(ws.validator.report().ms)} ms)`); },
 });
 commands.add({ id: 'model.newProfile', title: 'New profile (your own stereotypes)', group: 'Model', keywords: ['stereotype', 'profile', 'custom kind', 'tagged value', 'metadata'], enabled: inProject, run: () => ws?.newProfile() });
-commands.add({ id: 'help.library', title: 'Open the SysML library', group: 'Help', keys: '?', keywords: ['reference', 'help', 'docs'], enabled: () => false, run: () => {} });
+commands.add({ id: 'help.library', title: 'Open the SysML library (help on the selection)', group: 'Help', keys: '?', keywords: ['reference', 'help', 'docs', 'what is', 'sysml', 'mbse'], enabled: inProject, run: () => ws?.openLibrary() });
+
+// ---------- exchange ----------
+commands.add({ id: 'interop.importReqs', title: 'Import requirements (ReqIF, Excel, CSV)…', group: 'Exchange', keywords: ['reqif', 'doors', 'polarion', 'jama', 'excel', 'xlsx', 'csv', 'spreadsheet', 'supplier'], enabled: inProject, run: () => ws?.importRequirements() });
+commands.add({ id: 'interop.exportReqs', title: 'Export requirements (ReqIF, Excel, CSV)…', group: 'Exchange', keywords: ['reqif', 'doors', 'polarion', 'excel', 'xlsx', 'csv', 'spreadsheet', 'supplier'], enabled: inProject, run: () => ws?.exportRequirements() });
+commands.add({ id: 'doc.generate', title: 'Generate a document (HTML or PDF)…', group: 'Exchange', keywords: ['report', 'specification', 'pdf', 'print', 'word', 'export', 'document'], enabled: inProject, run: () => ws?.generateDocument() });
+commands.add({ id: 'api.send', title: 'Send this project to a SysML v2 API server…', group: 'Exchange', keywords: ['sysml v2', 'api', 'server', 'repository', 'push', 'omg'], enabled: inProject, run: () => ws?.sendToApi() });
+commands.add({ id: 'api.open', title: 'Open a project from a SysML v2 API server…', group: 'Exchange', keywords: ['sysml v2', 'api', 'server', 'repository', 'pull', 'omg'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.openFromServer(); } });
+commands.add({ id: 'interop.importModel', title: 'Import a Cameo / MagicDraw model (.mdzip, .xmi)…', group: 'Exchange', keywords: ['cameo', 'magicdraw', 'xmi', 'mdzip', 'sysml 1', 'uml', 'capella'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
 
 // ---------- projects ----------
 commands.add({ id: 'project.new', title: 'New project…', group: 'Project', keywords: ['create'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.newProject(); } });

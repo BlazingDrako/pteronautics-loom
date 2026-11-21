@@ -49,6 +49,7 @@ import { prompt } from '../ui/dialog.js';
  *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  *   showProblems?: (id: string) => void,
  *   settings?: import('../settings.js').SettingsStore,
+ *   offscreen?: boolean,
  * }} ViewCtx
  */
 
@@ -121,10 +122,11 @@ export function createDiagramView(ctx) {
   /** @type {ReturnType<typeof createRunPanel> | null} */
   let runPanel = null;
   /** @type {Camera} */
-  const cam = cameras.get(diagramId) || { x: 0, y: 0, k: 1 };
-  cameras.set(diagramId, cam);
-  let firstFit = !cameras.has(diagramId + ':seen');
-  cameras.set(diagramId + ':seen', cam);
+  // an offscreen view (a document snapshot) has its own camera and leaves yours alone
+  const cam = ctx.offscreen ? { x: 0, y: 0, k: 1 } : cameras.get(diagramId) || { x: 0, y: 0, k: 1 };
+  if (!ctx.offscreen) cameras.set(diagramId, cam);
+  let firstFit = !ctx.offscreen && !cameras.has(diagramId + ':seen');
+  if (!ctx.offscreen) cameras.set(diagramId + ':seen', cam);
 
   /** Selected boxes. @type {Set<string>} */
   let sel = new Set();

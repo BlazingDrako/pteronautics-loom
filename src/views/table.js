@@ -166,7 +166,8 @@ export function createTableView(ctx) {
     search, gapsBtn,
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => columnsMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('columns'), 'Columns'),
     h('button', { class: 'btn sm', type: 'button', title: 'Give every requirement here a fresh ID, in order', onclick: () => renumberAll() }, icon('hash'), 'Renumber'),
-    h('button', { class: 'btn sm', type: 'button', title: 'Download the rows shown as a CSV file (opens in Excel)', onclick: () => exportCsv() }, icon('download'), 'CSV'),
+    h('button', { class: 'btn sm', type: 'button', title: 'Download the rows shown as an Excel workbook', onclick: () => exportXlsx() }, icon('download'), 'Excel'),
+    h('button', { class: 'btn sm', type: 'button', title: 'Download the rows shown as a CSV file', onclick: () => exportCsv() }, icon('download'), 'CSV'),
     h('span', { style: { flex: '1' } }),
     count);
   const head = h('div', { class: 'thead', role: 'row' });
@@ -396,6 +397,14 @@ export function createTableView(ctx) {
   function exportCsv() {
     const name = `${table().name.replace(/[^\w\- ]+/g, '').trim() || 'requirements'}.csv`;
     download(name, '﻿' + toCsv(model, rows, cols, status), 'text/csv');
+    toast(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} to ${name}`);
+  }
+
+  async function exportXlsx() {
+    const { writeXlsx } = await import('../interop/sheet.js');
+    const name = `${table().name.replace(/[^\w\- ]+/g, '').trim() || 'requirements'}.xlsx`;
+    const sheet = [cols.map((c) => COLUMNS[c.key].label), ...rows.map(({ el }) => cols.map((c) => cellText(model, el, c.key, status)))];
+    download(name, /** @type {any} */ (await writeXlsx([{ name: table().name, rows: sheet, widths: cols.map((c) => Math.max(8, Math.round(c.w / 7))) }])), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     toast(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} to ${name}`);
   }
 

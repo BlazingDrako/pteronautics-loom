@@ -46,13 +46,14 @@ const roleName = (n) => { const w = n.replace(/[^A-Za-z0-9 ]+/g, ' ').trim().spl
  *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  *   showProblems?: (id: string) => void,
  *   settings?: import('../settings.js').SettingsStore,
+ *   offscreen?: boolean,
  * }} ctx
  */
 export function createIbdView(ctx) {
   const { model, diagramId } = ctx;
   const diagram = () => model.get(diagramId);
-  const cam = cameras.get(diagramId) || { x: -60, y: -60, k: 1 };
-  cameras.set(diagramId, cam);
+  const cam = ctx.offscreen ? { x: -60, y: -60, k: 1, seen: true } : cameras.get(diagramId) || { x: -60, y: -60, k: 1 };
+  if (!ctx.offscreen) cameras.set(diagramId, cam);
   let firstFit = !cam.seen;
   cam.seen = true;
 

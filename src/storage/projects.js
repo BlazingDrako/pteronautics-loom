@@ -189,6 +189,8 @@ export function createProjectStore(backend) {
       const f = fromFile(text);
       return add(await freeName(f.name), f.description, f.model);
     },
+    /** Add a project from a model made elsewhere (an import from another tool). @param {string} name @param {string} description @param {import('../model/model.js').Model} m */
+    async importModel(name, description, m) { return add(await freeName(name.trim() || 'Imported project'), description, m); },
     /** Add a project from a file's bytes: a .loom.json or a .zip of a project folder. @param {Uint8Array} bytes */
     async importBytes(bytes) {
       if (isZip(bytes)) {

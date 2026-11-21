@@ -5,6 +5,7 @@ import { modal, prompt, confirm } from './dialog.js';
 import { LAYERS } from '../model/metamodel.js';
 import { canUseFolders, pickFolder, readFolder } from '../storage/folderfs.js';
 import { VERSION } from '../version.js';
+import { fileFormat, modelFromForeignFile, MODEL_ACCEPT, importFromApi } from './interop.js';
 
 /** @typedef {import('../storage/projects.js').ProjectStore} ProjectStore */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -52,18 +53,34 @@ export async function mountHome(root, ctx) {
   const page = h('div', { class: 'home' });
   root.replaceChildren(page);
 
-  const fileInput = h('input', { type: 'file', accept: '.json,.loom.json,.zip,application/json,application/zip', hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+  const fileInput = h('input', { type: 'file', accept: MODEL_ACCEPT, hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
   fileInput.addEventListener('change', async () => {
     const f = fileInput.files?.[0];
     fileInput.value = '';
     if (!f) return;
-    if (f.size > 50 * 1024 * 1024) { toast('That file is larger than 50 MB', true); return; }
+    if (f.size > 200 * 1024 * 1024) { toast('That file is larger than 200 MB', true); return; }
     try {
+      if (fileFormat(f.name) !== 'loom') {
+        // a model from another tool (Cameo XMI) or requirements (ReqIF, Excel, CSV): a new project
+        const r = await modelFromForeignFile(f);
+        if (!r) return;
+        const meta = await projects.importModel(r.name, `Imported from ${f.name}`, r.model);
+        toast(`Imported “${meta.name}”`);
+        ctx.open(meta.id);
+        return;
+      }
       const meta = await projects.importBytes(new Uint8Array(await f.arrayBuffer()));
       toast(`Imported “${meta.name}”`);
       await refresh();
     } catch (e) { toast(e instanceof Error ? e.message : 'Could not import that file', true); }
   });
+  /** A project from a SysML v2 API server. */
+  async function openFromServer() {
+    const r = await importFromApi();
+    if (!r) return;
+    const meta = await projects.importModel(r.name, 'Imported from a SysML v2 API server', r.model);
+    ctx.open(meta.id);
+  }
 
   const refresh = async () => { list = await projects.list(); render(); };
 
@@ -181,7 +198,8 @@ export async function mountHome(root, ctx) {
           h('div', { class: 'hero-actions' },
             h('button', { class: 'btn primary lg', type: 'button', onclick: newProject }, icon('plus'), 'New project'),
             canUseFolders() ? h('button', { class: 'btn lg', type: 'button', title: 'Open a folder of .sysml files saved by Loom (for example a git repository)', onclick: openFolder }, icon('folder'), 'Open folder') : null,
-            h('button', { class: 'btn lg', type: 'button', title: 'Import a .loom.json file or a .zip of a project folder', onclick: () => fileInput.click() }, icon('upload'), 'Import')))),
+            h('button', { class: 'btn lg', type: 'button', title: 'Import a Loom project (.loom.json, .zip), a Cameo or MagicDraw model (.mdzip, .xmi), or requirements (ReqIF, Excel, CSV)', onclick: () => fileInput.click() }, icon('upload'), 'Import'),
+            h('button', { class: 'btn lg', type: 'button', title: 'Open a project from a SysML v2 API server', onclick: openFromServer }, icon('plug'), 'SysML v2 server')))),
       h('section', { class: 'projects' },
         h('div', { class: 'projects-head' },
           h('h2', {}, 'Your projects'),
@@ -206,7 +224,7 @@ export async function mountHome(root, ctx) {
   addEventListener('themechange', render);
   render();
   return {
-    newProject, importFile: () => fileInput.click(), openFolder,
+    newProject, importFile: () => fileInput.click(), openFolder, openFromServer,
     dispose() { document.removeEventListener('click', closeMenus); removeEventListener('themechange', render); },
   };
 }

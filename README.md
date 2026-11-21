@@ -12,7 +12,16 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.9.0: validation and customization)
+## What works today (0.10.0: interop and documents)
+
+- **ReqIF** (`.reqif`, `.reqifz`): export a package's requirements for DOORS, Polarion, Jama, Codebeamer or a supplier (sub-packages become headings; derive, copy and trace links go too, and what satisfies and verifies each requirement rides along), and import ReqIF from those tools. Loom recognises the attribute names they use (*Object Text*, *Absolute Number*, *Object Heading*, *ReqIF.Text*…) and maps their values (*High* → Must, *Accepted* → Approved). **Importing again updates** the requirements already there (matched by Loom's own id, then by requirement ID, then by name) instead of adding duplicates, as one undoable step.
+- **Excel and CSV**: export requirements one per row (ID, name, text, level, priority, status, method, rationale, parent, derived from, satisfied by, verified by, result), edit them anywhere and import them back the same way. Columns are recognised by name; *Parent ID* nests rows. The requirements table also exports the rows it shows as Excel. Workbooks are read and written by Loom itself, with no libraries.
+- **Cameo / MagicDraw** (`.mdzip`, `.xmi`, SysML 1.x): Import on the Home page makes a new project with packages, requirements (ID and text), blocks, interface blocks, value types (with QUDV units), constraint blocks, parts, ports, values with defaults, connectors, generalizations, satisfy, verify, derive, refine, trace, copy and allocate, activities with swimlanes, state machines, use cases and scenarios. Each element goes to the RFLP layer of its kind, in a copy of its package. Diagram layouts are Cameo's own format and are not read; the import report counts everything left out.
+- **SysML v2 API**: open a project from any server that implements the OMG Systems Modeling API (projects, commits, paged elements), or send a Loom project to one as a new project with one commit. The server must allow requests from the browser (CORS).
+- **Documents**: generate the model as a report: a cover, contents, summary and coverage, requirements (with satisfied by, verified by and result), verification, functions and allocation, architecture (blocks with stereotypes, parts, ports, given and computed values), interfaces and connections, behavior, analysis, every diagram as a picture, and the validation problems. One HTML file holds everything (styles, fonts, diagrams as SVG); print it to PDF from the browser. Word (.docx) is still to come.
+- **The SysML library** is complete: articles on MBSE, SysML v1 and v2, RFLP, the Systems V, traceability, coverage, writing requirements, verification, parametrics, allocation, ports, state machines, profiles and exchange, and an entry for every element, relationship and diagram kind (its names in each notation, what it contains and relates to, its properties, how it is written in SysML v2 text, and the elements of that kind in your model). Press **?** for the entry of the selected element's kind.
+
+### 0.9.0: validation and customization
 
 - **Validation as you work.** 37 rules check the model a moment after every edit: parts and ports without types, connectors joining incompatible ports, bad multiplicities, blocks that contain or specialize themselves, unknown units, equations that cannot be read or that conflict, requirements without IDs or text, duplicate IDs, requirements nothing satisfies or verifies, failed tests and broken live checks, test cases that verify nothing, unallocated functions, unused blocks, duplicate and placeholder names, empty diagrams, and everything **Check** finds on activities, state machines and scenarios. Requirement **wording** is checked too (after INCOSE's guide): vague words (*fast*, *adequate*, *user-friendly*), TBDs, missing "shall", two requirements in one, overlong text.
 - **The problems panel** (⌘⇧M, or the counts in the status bar) lists every problem with its element and rule. Filter by severity, by text, or to the selection; click to go to the element, double-click to open a diagram showing it; **F8** / **⇧F8** step through them. Many problems have a **one-click fix** (give a requirement the next ID, a new ID for a duplicate, rename a placeholder, take off a stereotype that no longer fits), and any problem can be **ignored**.
@@ -164,7 +173,7 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text), analysis and simulation, and validation and customization (every rule, rule sets, custom rules, ignoring and fixing, stereotypes in the model, on diagrams, in text and in folders, view presets, settings and shortcut remapping) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text), analysis and simulation, and validation and customization (every rule, rule sets, custom rules, ignoring and fixing, stereotypes in the model, on diagrams, in text and in folders, view presets, settings and shortcut remapping), and interop and documents (ReqIF, Excel and CSV round trips and files from other tools, Cameo XMI, the SysML v2 API against a mock server, documents and diagram pictures, the library) tests. Results are also left in `window.__results`.
 
 **Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; printing, parsing, building and applying 16,000 lines of SysML v2 text; and a 400-step activity and a 1,000-message sequence.
 
@@ -244,6 +253,17 @@ src/ui/rulesdlg.js           the validation rules dialog
 src/custom/stereo.js         profiles and stereotypes: applying, tags, how boxes show them
 src/custom/presets.js        view presets
 src/ui/prefs.js              preferences: appearance, shortcuts, presets
+src/interop/reqif.js         ReqIF import and export
+src/interop/sheet.js         CSV and Excel (.xlsx) reading and writing; requirements as rows
+src/interop/reqs.js          merging imported requirements (update, not duplicate)
+src/interop/xmi.js           Cameo / MagicDraw XMI import (SysML 1.x)
+src/interop/api.js           the SysML v2 API client
+src/interop/docs.js          document generation (HTML, print to PDF)
+src/interop/snapshot.js      a diagram as a standalone SVG
+src/interop/xml.js           XML helpers
+src/ui/interop.js            the exchange dialogs
+src/library/entries.js       the SysML and MBSE reference, as data
+src/views/library.js         the library view
 tests/                       test page, runner and Loom tests
 PLAN.md                      the build plan
 ```

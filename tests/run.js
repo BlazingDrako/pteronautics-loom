@@ -11,6 +11,7 @@ import { textTests } from './loom/text.tests.js';
 import { behaviorTests } from './loom/behavior.tests.js';
 import { analysisTests } from './loom/analysis.tests.js';
 import { customTests } from './loom/custom.tests.js';
+import { interopTests } from './loom/interop.tests.js';
 
 /** @typedef {{ name: string, pass: boolean, detail: string, group?: string }} Result */
 /** @typedef {(name: string, pass: unknown, detail?: unknown) => void} Log */
@@ -34,6 +35,7 @@ const SUITES = [
   ['loom', 'Behavior: activities, states, sequences, use cases, packages', behaviorTests],
   ['loom', 'Analysis and simulation: units, solver, live checks, running diagrams', analysisTests],
   ['loom', 'Validation and customization: rules, problems, stereotypes, presets, shortcuts', customTests],
+  ['loom', 'Interop and documents: ReqIF, Excel, CSV, Cameo XMI, SysML v2 API, documents, library', interopTests],
 ];
 
 /** @param {HTMLElement} out @param {HTMLElement} summary */
