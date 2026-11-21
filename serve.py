@@ -32,7 +32,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-Handler.extensions_map.update({".js": "text/javascript", ".mjs": "text/javascript"})
+Handler.extensions_map.update({".js": "text/javascript", ".mjs": "text/javascript", ".webmanifest": "application/manifest+json"})
 
 
 class Server(socketserver.ThreadingTCPServer):

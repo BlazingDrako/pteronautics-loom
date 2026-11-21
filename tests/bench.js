@@ -16,7 +16,7 @@ import { createSequenceView } from '../src/canvas/sdview.js';
 import { analyze } from '../src/analysis/solver.js';
 import { checksOf } from '../src/analysis/verify.js';
 import { createActivityRun, checkActivity } from '../src/sim/activity.js';
-import { validate } from '../src/validate/engine.js';
+import { validate, createValidator } from '../src/validate/engine.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -55,7 +55,20 @@ export async function runBench(report) {
   validate(opened);
   let nProblems = 0;
   const tValidate = time(() => { nProblems = validate(opened).problems.length; });
-  report({ name: `Validate ${opened.count().toLocaleString()} elements with every Recommended rule (${nProblems.toLocaleString()} problems)`, ms: tValidate, budget: 200, note: 'plan budget: incremental validation under 50 ms off the main thread. Today a full pass runs on the main thread 250 ms after editing pauses' });
+  report({ name: `Validate ${opened.count().toLocaleString()} elements on the page, every Recommended rule (${nProblems.toLocaleString()} problems)`, ms: tValidate, budget: 200, note: 'the fallback when workers are unavailable; the app checks in the worker (next rows)' });
+  const wv = createValidator(opened, { worker: true, delay: 0 });
+  await wv.now();
+  const tSends = [], tWorker = [];
+  for (let i = 0; i < 5; i++) {
+    opened.transact('Rename', (/** @type {any} */ tx) => tx.rename(opened.byKind('partDef')[200 + i].id, `Edited ${i}`));
+    const t0 = performance.now();
+    const pending = wv.now();
+    tSends.push(performance.now() - t0);
+    tWorker.push((await pending).ms);
+  }
+  wv.dispose();
+  report({ name: `After an edit: validate ${opened.count().toLocaleString()} elements in the worker (median of 5)`, ms: median(tWorker), budget: 50, note: 'off the main thread: a full pass on the worker\'s copy of the model' });
+  report({ name: 'After an edit: the page\'s share of validating (sending the change to the worker)', ms: median(tSends), budget: 2 });
 
   // ---------- 2. a 2,000-block diagram ----------
   const dm = createModel();

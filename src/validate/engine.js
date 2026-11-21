@@ -190,14 +190,54 @@ export function validate(m, c = configOf(m)) {
       if (!ok) push(`custom:${r.id}`, r.severity, e.id, { message: `${e.name}: ${r.message || customText(r).replace(/^Every [^']+'s /, '')}` });
     }
   }
-  problems.sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.rule.localeCompare(b.rule) || a.message.localeCompare(b.message));
+  problems.sort((a, b) => RANK[a.severity] - RANK[b.severity] || (a.rule < b.rule ? -1 : a.rule > b.rule ? 1 : COLLATE(a.message, b.message)));
+  const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+  return reportOf(m, problems, nIgnored, ms, m.version());
+}
+
+const COLLATE = new Intl.Collator('en', { numeric: true }).compare;
+
+/**
+ * A report from a sorted list of problems: indexed by element, and counted.
+ * @param {Model} m @param {Problem[]} problems @param {number} ignored @param {number} ms @param {number} version @returns {Report}
+ */
+function reportOf(m, problems, ignored, ms, version) {
   /** @type {Map<string, Problem[]>} */
   const byId = new Map();
-  for (const p of problems) for (const id of new Set([p.id, ...(p.ids || [])])) if (m.get(id) && !isRel(/** @type {any} */ (m.get(id)).kind)) (byId.get(id) || byId.set(id, []).get(id))?.push(p);
+  for (const p of problems) {
+    for (const id of p.ids ? new Set([p.id, ...p.ids]) : [p.id]) {
+      const e = m.get(id);
+      if (e && !isRel(e.kind)) { const list = byId.get(id); if (list) list.push(p); else byId.set(id, [p]); }
+    }
+  }
   const counts = { error: 0, warning: 0, info: 0 };
   for (const p of problems) counts[p.severity]++;
-  const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-  return { problems, byId, counts, ignored: nIgnored, ms, version: m.version() };
+  return { problems, byId, counts, ignored, ms, version };
+}
+
+/**
+ * Problems as they cross to or from a worker: a fix keeps its label and what the app does,
+ * and loses the edit itself (a function), which `fixRun` finds again when the fix is used.
+ * @param {Problem[]} problems
+ */
+export const portable = (problems) => problems.map((p) => (p.fix?.run ? { ...p, fix: { label: p.fix.label, ...(p.fix.ui ? { ui: p.fix.ui } : {}) } } : p));
+
+/**
+ * The edit a problem's fix makes, worked out again on this model (problems from the worker
+ * carry only the fix's label).
+ * @param {Model} m @param {Problem} p @returns {Fix['run'] | undefined}
+ */
+export function fixRun(m, p) {
+  if (p.fix?.run) return p.fix.run;
+  const r = RULE_BY_ID.get(p.rule);
+  if (!r || !p.fix) return undefined;
+  const cx = new Context(m);
+  /** @type {any[]} */
+  let found = [];
+  if (r.check) { const e = m.get(p.id); const res = e ? r.check(m, e, cx) : null; found = res ? (Array.isArray(res) ? res : [res]) : []; }
+  else if (r.all) found = r.all(m, cx).filter((f) => f.id === p.id);
+  const hit = found.find((o) => o && typeof o === 'object' && o.message === p.message && o.fix?.label === p.fix?.label) || found.find((o) => o && typeof o === 'object' && o.fix?.label === p.fix?.label);
+  return hit?.fix?.run;
 }
 
 /** The title of a rule or custom rule, by its id in a problem. @param {Config} c @param {string} rule */
@@ -213,31 +253,110 @@ export const worst = (list) => (list && list.length ? list.reduce((w, p) => (RAN
  * A validator for a live model: runs once now, then again shortly after every change, and
  * tells its subscribers. Running is skipped while the model keeps changing (typing, dragging),
  * so it never slows an edit down.
- * @param {Model} m @param {{ delay?: number }} [o]
+ *
+ * With `worker`, the rules run in a background worker that keeps its own copy of the model,
+ * updated with only the elements each edit touched, so even a 50,000-element project is
+ * checked without taking any time from the page. Without workers (or if one fails to start)
+ * the same rules run here.
+ * @param {Model} m @param {{ delay?: number, worker?: boolean }} [o]
  */
 export function createValidator(m, o = {}) {
   const delay = o.delay ?? 250;
-  /** @type {Report} */
-  let report = validate(m);
   /** @type {Set<(r: Report) => void>} */
   const subs = new Set();
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let timer;
   let stamp = 0;
-  const run = () => { timer = undefined; report = validate(m); stamp++; subs.forEach((f) => f(report)); };
-  const unsub = m.subscribe(() => { clearTimeout(timer); timer = setTimeout(run, delay); });
+  /** @type {Report} */
+  let report;
+  /** @type {Worker | null} */
+  let worker = null;
+  /** Ids changed since the worker last heard. */
+  let dirty = new Set();
+  let seq = 0;
+  /** @type {Map<number, (r: Report) => void>} */
+  const waiting = new Map();
+
+  const publish = (/** @type {Report} */ r) => { report = r; stamp++; subs.forEach((f) => f(r)); };
+  const runHere = () => { publish(validate(m)); return Promise.resolve(report); };
+
+  if (o.worker && typeof Worker === 'function') {
+    try {
+      worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'Loom validation' });
+      worker.onmessage = (ev) => {
+        const d = ev.data;
+        if (d.t !== 'report') return;
+        const r = reportOf(m, d.problems, d.ignored, d.ms, d.version);
+        const done = waiting.get(d.seq); waiting.delete(d.seq);
+        // a report on an older model is still shown (it is nearly right); a newer run is already queued
+        publish(r);
+        done?.(r);
+      };
+      worker.onerror = (ev) => { ev.preventDefault?.(); fallBack(); };
+      worker.postMessage({ t: 'load', elements: treeOrder(m), version: m.version() });
+    } catch { worker = null; }
+  }
+  function fallBack() {
+    if (!worker) return;
+    worker.terminate(); worker = null;
+    const pending = [...waiting.values()]; waiting.clear();
+    runHere(); pending.forEach((f) => f(report));
+  }
+  /** Send what changed and ask for a run. @returns {Promise<Report>} */
+  function runWorker() {
+    const w = /** @type {Worker} */ (worker);
+    if (dirty.size) { w.postMessage({ t: 'patch', changes: changesFor(m, dirty) }); dirty = new Set(); }
+    const id = ++seq;
+    w.postMessage({ t: 'run', seq: id, version: m.version() });
+    return new Promise((res) => waiting.set(id, res));
+  }
+  const run = () => { timer = undefined; return worker ? runWorker() : runHere(); };
+
+  // the first report: right away here, or an empty one until the worker answers
+  if (worker) { report = reportOf(m, [], 0, 0, -1); run(); }
+  else report = validate(m);
+
+  const unsub = m.subscribe((e) => {
+    if (worker) for (const id of e.ids) dirty.add(id);
+    clearTimeout(timer); timer = setTimeout(run, delay);
+  });
   return {
     report: () => report,
     /** Increases every time problems are recomputed. */
     stamp: () => stamp,
-    /** Run now (after changing the settings, say). */
-    now() { clearTimeout(timer); run(); },
+    /** Is the work done in a background worker? */
+    inWorker: () => !!worker,
+    /** Run now (after changing the settings, say). @returns {Promise<Report>} */
+    now() { clearTimeout(timer); return run(); },
     /** @param {string} id */
     problemsFor: (id) => report.byId.get(id) || [],
     /** @param {(r: Report) => void} fn @returns {() => void} */
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
-    dispose() { clearTimeout(timer); unsub(); subs.clear(); },
+    dispose() { clearTimeout(timer); unsub(); subs.clear(); worker?.terminate(); worker = null; },
   };
+}
+
+/** Every element, owners before children, then relationships: the order a model loads in. @param {Model} m */
+function treeOrder(m) {
+  /** @type {import('../model/model.js').Element[]} */
+  const out = [];
+  const walk = (/** @type {import('../model/model.js').Element} */ e) => { out.push(e); for (const c of m.children(e.id)) walk(c); };
+  const root = m.root();
+  if (root) walk(root);
+  for (const e of m.all()) if (isRel(e.kind)) out.push(e);
+  return out;
+}
+
+/** What the worker needs to follow these changed ids. @param {Model} m @param {Set<string>} ids */
+function changesFor(m, ids) {
+  return [...ids].map((id) => {
+    const el = m.get(id);
+    if (!el) return { id, el: null };
+    let d = 0;
+    for (let x = el.owner; x; x = m.get(x)?.owner ?? null) d++;
+    const i = el.owner && !isRel(el.kind) ? m.children(el.owner).findIndex((c) => c.id === id) : 0;
+    return { id, el, d: isRel(el.kind) ? 1e6 : d, i };
+  });
 }
 
 /** @typedef {ReturnType<typeof createValidator>} Validator */

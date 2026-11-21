@@ -2,7 +2,7 @@
 //
 // A rule either checks one element at a time (`kinds` + `check`), or the whole model at once
 // (`all`). Checks are pure functions of the model, so the same rules run in tests, in the app
-// and (later) in a worker. Each finding names the element it is about, says what is wrong in
+// and in the validation worker. Each finding names the element it is about, says what is wrong in
 // plain words and, where Loom can do it for you, offers a fix.
 import { ELEMENTS, kindName, isRel, LAYERS } from '../model/metamodel.js';
 import { requirementStatus, duplicateIds, nextReqId } from '../model/trace.js';
@@ -62,13 +62,20 @@ export class Context {
     const s = new Set();
     for (const e of this.m.all()) {
       if (isRel(e.kind)) { if (e.source) s.add(e.source); if (e.target) s.add(e.target); continue; }
-      for (const [k, p] of Object.entries(ELEMENTS[e.kind].props)) if (p.type === 'ref' && e.props[k]) s.add(e.props[k]);
+      for (const k of refProps(e.kind)) if (e.props[k]) s.add(e.props[k]);
     }
     return (this._used = s);
   }
 }
 
+/** @type {Map<string, string[]>} */
+const REF_PROPS = new Map();
+/** A kind's properties that refer to another element. @param {string} kind */
+const refProps = (kind) => REF_PROPS.get(kind) || REF_PROPS.set(kind, Object.entries(ELEMENTS[kind].props).filter(([, p]) => p.type === 'ref').map(([k]) => k)).get(kind) || [];
+
 const S = (/** @type {string} */ k) => kindName(k, 'sysml');
+/** Kinds whose names are labels, not identities: duplicates are fine. */
+const UNNAMED = new Set(['connector', 'flow', 'transition', 'binding', 'message', 'comment', 'controlNode']);
 /** Default element names: "Block 3", "Requirement 12". */
 const DEFAULT_NAME = new RegExp(`^(${Object.keys(ELEMENTS).map((k) => S(k).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}) \\d+$`);
 /** Words that make a requirement impossible to verify (after INCOSE's guide to writing requirements). */
@@ -336,14 +343,20 @@ export const RULES = [
     all: (m) => {
       /** @type {Found[]} */
       const out = [];
-      /** @type {Map<string, Element[]>} */
-      const by = new Map();
-      for (const e of m.all()) {
-        if (isRel(e.kind) || !e.owner || ['connector', 'flow', 'transition', 'binding', 'message', 'comment', 'controlNode'].includes(e.kind)) continue;
-        const k = `${e.owner}|${e.kind}|${e.name}`;
-        (by.get(k) || by.set(k, []).get(k))?.push(e);
+      // sibling by sibling: only owners with two or more children can have a clash
+      for (const owner of m.all()) {
+        if (isRel(owner.kind)) continue;
+        const kids = m.children(owner.id);
+        if (kids.length < 2) continue;
+        /** @type {Set<string>} */
+        const seen = new Set();
+        for (const e of kids) {
+          if (UNNAMED.has(e.kind)) continue;
+          const k = `${e.kind}|${e.name}`;
+          if (!seen.has(k)) { seen.add(k); continue; }
+          out.push({ id: e.id, message: `${e.name}: another ${S(e.kind).toLowerCase()} in ${owner.name} has the same name`, fix: { label: 'Rename…', ui: 'rename' } });
+        }
       }
-      for (const list of by.values()) if (list.length > 1) for (const e of list.slice(1)) out.push({ id: e.id, message: `${e.name}: another ${S(e.kind).toLowerCase()} in ${m.get(/** @type {string} */ (e.owner))?.name} has the same name`, fix: { label: 'Rename…', ui: 'rename' } });
       return out;
     },
   },

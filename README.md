@@ -8,11 +8,20 @@
 | --- | --- |
 | **Pteronautics Atlas** | Learn how the physics works, one concept at a time, each with a live visual |
 | **Pteronautics Works** | Design whole vehicles on the same validated solvers, coupled together |
-| **Pteronautics Loom** (this repository, in development) | Model the system: requirements, functions, logical and physical architecture, interfaces and verification, in SysML |
+| **Pteronautics Loom** (this repository) | Model the system: requirements, functions, logical and physical architecture, interfaces and verification, in SysML |
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.10.0: interop and documents)
+## What works today (1.0.0: desktop, offline and launch)
+
+- **Install it as an app** (Chrome, Edge, Arc; Safari's *Add to Dock*): its own window, and it **works offline**, because every file it needs is kept by a service worker. While online it still fetches the newest files first, so updates arrive on the next launch. The installed app opens `.loom.json`, `.zip`, `.sysml`, Cameo and ReqIF files handed to it, and has a *New project* shortcut. See [docs/desktop.md](docs/desktop.md).
+- **Desktop:** `Pteronautics Loom.app` starts Loom from this folder on macOS, like the Atlas launcher. `desktop/tauri/` is a Tauri 2 project for a native build on macOS, Windows and Linux (not built yet; it needs Rust).
+- **Validation in the background:** the rules run in a worker that keeps its own copy of the model and receives only what each edit changed. Checking 50,000 elements takes about 50 ms in the worker and well under a millisecond of the page's time, so typing and dragging never wait for it. The duplicate-name and unused-block rules and the problem sorting got faster too.
+- **Three samples:** besides Kestrel, a **CubeSat power system** (solar array, battery and power unit connected through typed ports, and an energy budget that checks the orbit-average power requirement live) and a **landing gear** (an extension activity with a free-fall path when hydraulics fail, the gear's states and a gear-down scenario). Each builds with no errors or warnings and round-trips through SysML v2 text.
+- **Docs:** [a user guide](docs/guide.md) (a project from start to finish, the workspace, shortcuts), [the desktop options](docs/desktop.md) and [a development guide](docs/development.md) (how the code is arranged, the worker, the offline app, adding rules, kinds and samples, releasing).
+- A new app icon, in every size the browsers, macOS and Windows want.
+
+### 0.10.0: interop and documents
 
 - **ReqIF** (`.reqif`, `.reqifz`): export a package's requirements for DOORS, Polarion, Jama, Codebeamer or a supplier (sub-packages become headings; derive, copy and trace links go too, and what satisfies and verifies each requirement rides along), and import ReqIF from those tools. Loom recognises the attribute names they use (*Object Text*, *Absolute Number*, *Object Heading*, *ReqIF.Text*…) and maps their values (*High* → Must, *Accepted* → Approved). **Importing again updates** the requirements already there (matched by Loom's own id, then by requirement ID, then by name) instead of adding duplicates, as one undoable step.
 - **Excel and CSV**: export requirements one per row (ID, name, text, level, priority, status, method, rationale, parent, derived from, satisfied by, verified by, result), edit them anywhere and import them back the same way. Columns are recognised by name; *Parent ID* nests rows. The requirements table also exports the rows it shows as Excel. Workbooks are read and written by Loom itself, with no libraries.
@@ -167,15 +176,18 @@ Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nea
 
 - **macOS:** double-click `start.command` (first time: right-click → Open).
 - **Windows:** double-click `start.bat`.
+- **macOS app:** double-click `Pteronautics Loom.app` in this folder (no Terminal window; quit it from the Dock to stop the server).
 - **Any system:** `python3 serve.py`, then open http://localhost:8800
+
+Then choose **Install app** on the Home page to have Loom in its own window, offline. The same folder can be hosted as-is on any static web host, so people need nothing installed at all. New to Loom? Start with [the user guide](docs/guide.md).
 
 Plain ES modules, no build step, no dependencies. Python 3 is the only requirement; browsers need a local server for modules. Atlas uses port 8765 and Works 8790, so all three can run side by side. `python3 serve.py 9000 --no-browser` picks another port and skips opening the browser.
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text), analysis and simulation, and validation and customization (every rule, rule sets, custom rules, ignoring and fixing, stereotypes in the model, on diagrams, in text and in folders, view presets, settings and shortcut remapping), and interop and documents (ReqIF, Excel and CSV round trips and files from other tools, Cameo XMI, the SysML v2 API against a mock server, documents and diagram pictures, the library) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text), analysis and simulation, and validation and customization (every rule, rule sets, custom rules, ignoring and fixing, stereotypes in the model, on diagrams, in text and in folders, view presets, settings and shortcut remapping), interop and documents (ReqIF, Excel and CSV round trips and files from other tools, Cameo XMI, the SysML v2 API against a mock server, documents and diagram pictures, the library), and release (the validation worker following edits and finding the same problems as the page, the offline file list and manifest, every sample building cleanly and round-tripping, the desktop files) tests. Results are also left in `window.__results`.
 
-**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; printing, parsing, building and applying 16,000 lines of SysML v2 text; and a 400-step activity and a 1,000-message sequence.
+**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; printing, parsing, building and applying 16,000 lines of SysML v2 text; a 400-step activity and a 1,000-message sequence; and validating 50,000 elements, on the page and in the worker.
 
 ### Type checking (optional, for development)
 
@@ -198,6 +210,9 @@ src/model/metamodel.js       element and relationship kinds, ownership rules, na
 src/model/model.js           the element graph, transactions, undo and redo
 src/model/serialize.js       snapshots and the .loom.json file format, with full checking on load
 src/model/sample.js          the Kestrel UAS sample model
+src/model/samples.js         the samples offered on Home: Kestrel, the CubeSat power system, the landing gear
+src/pwa.js                   the offline app: service worker registration, install, files opened with the app
+src/validate/worker.js       the validation worker (a copy of the model that follows edits)
 src/storage/projects.js      projects on this device (IndexedDB, memory fallback), import and export
 src/ui/home.js               the Home page
 src/ui/workspace.js          a project's window: browser, overview, inspector, status bar
@@ -264,6 +279,13 @@ src/interop/xml.js           XML helpers
 src/ui/interop.js            the exchange dialogs
 src/library/entries.js       the SysML and MBSE reference, as data
 src/views/library.js         the library view
+manifest.webmanifest         the installable app: name, icons, file types it opens
+sw.js                        the service worker (generated by tools/precache.py; do not edit)
+tools/precache.py            writes sw.js from tools/sw.template.js and the app's files
+Pteronautics Loom.app        the macOS launcher
+desktop/stage.py             gets a Tauri build ready (copies the app, sets the version)
+desktop/tauri/               the Tauri 2 project for a native desktop build
+docs/                        the user guide, desktop options and development guide
 tests/                       test page, runner and Loom tests
 PLAN.md                      the build plan
 ```

@@ -28,7 +28,7 @@ import { applySnapshot } from '../text/build.js';
 import { projectFiles, signature, snapshotFromFiles, pick, FileError, PROJECT_FILE } from '../storage/folder.js';
 import { canUseFolders, pickFolder, hasAccess, readFolder, writeFolder } from '../storage/folderfs.js';
 import { LAYER_FILES } from '../text/printer.js';
-import { createValidator, updateConfig, configText } from '../validate/engine.js';
+import { createValidator, updateConfig, configText, fixRun } from '../validate/engine.js';
 import { createProblemsPanel, SEV_ICON } from './problems.js';
 import { openRulesDialog } from './rulesdlg.js';
 import { openPreferences } from './prefs.js';
@@ -85,8 +85,8 @@ export function mountWorkspace(root, ctx) {
   let pending = false;
 
   const notation = () => settings.get().notation;
-  /** The validation rules, re-run shortly after every edit. */
-  const validator = createValidator(model);
+  /** The validation rules, re-run in a background worker shortly after every edit. */
+  const validator = createValidator(model, { worker: true });
   const problemsFor = (/** @type {string} */ id) => validator.problemsFor(id);
   /** @type {ReturnType<typeof createProblemsPanel> | null} */
   let problemsPanel = null;
@@ -141,8 +141,9 @@ export function mountWorkspace(root, ctx) {
   function fixProblem(p) {
     if (!p.fix) return;
     if (p.fix.ui === 'rename') { select(p.id); const e = model.get(p.id); if (e && !e.layer && e.owner) tree.startRename(p.id); return; }
-    const run = p.fix.run;
-    if (run && edit(p.fix.label, (tx) => run(model, tx))) { validator.now(); toast(`${p.fix.label}. ${formatKeys('Mod+Z')} to undo.`); }
+    const run = fixRun(model, p);
+    if (!run) { toast('This problem has changed since it was found. Check it again.', true); validator.now(); return; }
+    if (edit(p.fix.label, (tx) => run(model, tx))) { validator.now(); toast(`${p.fix.label}. ${formatKeys('Mod+Z')} to undo.`); }
   }
   /** @param {import('../validate/engine.js').Problem} p */
   function ignoreProblem(p) {
@@ -599,7 +600,8 @@ export function mountWorkspace(root, ctx) {
 
   /** The status bar's problem counts: click to show or hide the problems panel. */
   function problemsPill() {
-    const c = validator.report().counts;
+    const r = validator.report(), c = r.counts;
+    if (r.version < 0) return h('span', { class: 'pill prob-pill', title: 'Checking the model against the rules' }, icon('clock'), h('span', {}, 'Checking…'));
     const total = c.error + c.warning + c.info;
     return h('button', { class: 'pill prob-pill' + (c.error ? ' has-error' : c.warning ? ' has-warning' : ''), type: 'button', 'aria-pressed': String(settings.get().problems),
       title: `${total ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes` : 'No problems'}. ${settings.get().problems ? 'Hide' : 'Show'} the problems panel (${formatKeys('Mod+Shift+M')})`,

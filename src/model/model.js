@@ -537,6 +537,47 @@ export function createModel(opts = {}) {
     emit({ label: 'Open', cause: 'load', ids: new Set(list.map((e) => e.id)) });
   }
 
+  /**
+   * Bring this model in line with another one, element by element, bypassing history: used by
+   * the validation worker to follow the app's model. Each change carries an element's current
+   * state (or null when it is gone), its depth in the tree and its place among its siblings.
+   * @param {{ id: string, el: Element | null, d?: number, i?: number }[]} changes
+   */
+  function patch(changes) {
+    const ids = new Set();
+    const unlink = (/** @type {Element} */ el) => {
+      delFrom(byKind, el.kind, el.id);
+      if (isRel(el.kind)) { delFrom(from, /** @type {string} */ (el.source), el.id); delFrom(to, /** @type {string} */ (el.target), el.id); }
+      else if (el.owner) { const list = kids.get(el.owner); const k = list ? list.indexOf(el.id) : -1; if (k >= 0) list?.splice(k, 1); }
+      els.delete(el.id);
+    };
+    const purge = (/** @type {string} */ id) => {
+      const el = els.get(id);
+      if (!el) return;
+      for (const c of [...(kids.get(id) || [])]) purge(c);
+      for (const r of [...(from.get(id) || []), ...(to.get(id) || [])]) purge(r);
+      unlink(el); kids.delete(id); ids.add(id);
+    };
+    for (const c of changes) if (!c.el) purge(c.id);
+    // take every changed element out first, then put them back in order of their final place:
+    // the siblings that did not change keep their order, so each index lands where it should
+    const ups = changes.filter((c) => c.el).sort((a, b) => (a.d ?? 0) - (b.d ?? 0) || (a.i ?? 0) - (b.i ?? 0));
+    for (const c of ups) { const old = els.get(c.id); if (old) unlink(old); }
+    for (const c of ups) {
+      const el = clone(/** @type {Element} */ (c.el));
+      els.set(el.id, el);
+      addTo(byKind, el.kind, el.id);
+      if (isRel(el.kind)) { addTo(from, /** @type {string} */ (el.source), el.id); addTo(to, /** @type {string} */ (el.target), el.id); }
+      else {
+        if (!kids.has(el.id)) kids.set(el.id, []);
+        if (el.owner) { const list = kids.get(el.owner) || []; list.splice(Math.max(0, Math.min(c.i ?? Infinity, list.length)), 0, el.id); kids.set(el.owner, list); }
+        else rootId = el.id;
+      }
+      ids.add(el.id);
+    }
+    emit({ label: 'Sync', cause: 'load', ids });
+  }
+
   if (!opts.empty) {
     rootId = newId();
     apply({ t: 'add', el: { id: rootId, kind: 'package', name: opts.name || 'Untitled project', owner: null, props: defaultProps('package') }, index: 0 });
@@ -544,7 +585,7 @@ export function createModel(opts = {}) {
   }
 
   return {
-    ...api, transact, ...history, loadRaw,
+    ...api, transact, ...history, loadRaw, patch,
     /** @param {(e: ChangeEvent) => void} fn @returns {() => void} */
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     /** Is this a known kind? */

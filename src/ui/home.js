@@ -1,11 +1,14 @@
 // The Home page: the first thing Loom shows. Your projects, a new-project flow (blank or the
-// Kestrel sample), import and export of .loom.json files, and links to the rest of the family.
+// samples), import and export of .loom.json files, and links to the rest of the family.
 import { h, s, icon, brandMark, toast, resolvedTheme } from './dom.js';
 import { modal, prompt, confirm } from './dialog.js';
 import { LAYERS } from '../model/metamodel.js';
 import { canUseFolders, pickFolder, readFolder } from '../storage/folderfs.js';
 import { VERSION } from '../version.js';
 import { fileFormat, modelFromForeignFile, MODEL_ACCEPT, importFromApi } from './interop.js';
+import { SAMPLES, sampleById } from '../model/samples.js';
+import { modelFromFiles } from '../storage/folder.js';
+import { canInstall, install, onInstallChange } from '../pwa.js';
 
 /** @typedef {import('../storage/projects.js').ProjectStore} ProjectStore */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -57,8 +60,31 @@ export async function mountHome(root, ctx) {
   fileInput.addEventListener('change', async () => {
     const f = fileInput.files?.[0];
     fileInput.value = '';
-    if (!f) return;
-    if (f.size > 200 * 1024 * 1024) { toast('That file is larger than 200 MB', true); return; }
+    if (f) await openFiles([f]);
+  });
+  /**
+   * Open files as a project: a Loom file, a model or requirements from another tool, or
+   * SysML v2 text files (the .sysml files of a project folder). Used by Import and by the
+   * installed app when files are opened with it.
+   * @param {File[]} files
+   */
+  async function openFiles(files) {
+    if (!files.length) return;
+    if (files.some((x) => x.size > 200 * 1024 * 1024)) { toast('That file is larger than 200 MB', true); return; }
+    if (files.every((x) => x.name.toLowerCase().endsWith('.sysml'))) {
+      try {
+        /** @type {Record<string, string>} */
+        const texts = {};
+        for (const x of files) texts[x.name] = await x.text();
+        const { model } = modelFromFiles(texts);
+        const name = files.length === 1 ? files[0].name.replace(/\.sysml$/i, '') : model.root().name;
+        const meta = await projects.importModel(name, `Opened from ${files.map((x) => x.name).join(', ')}`, model);
+        toast(`Opened “${meta.name}”`);
+        ctx.open(meta.id);
+      } catch (e) { toast(e instanceof Error ? e.message : 'Could not read that SysML file', true); }
+      return;
+    }
+    const f = files[0];
     try {
       if (fileFormat(f.name) !== 'loom') {
         // a model from another tool (Cameo XMI) or requirements (ReqIF, Excel, CSV): a new project
@@ -73,7 +99,7 @@ export async function mountHome(root, ctx) {
       toast(`Imported “${meta.name}”`);
       await refresh();
     } catch (e) { toast(e instanceof Error ? e.message : 'Could not import that file', true); }
-  });
+  }
   /** A project from a SysML v2 API server. */
   async function openFromServer() {
     const r = await importFromApi();
@@ -99,23 +125,23 @@ export async function mountHome(root, ctx) {
   }
 
   async function newProject() {
-    /** @type {{ name: string, template: 'blank' | 'kestrel' } | null} */
+    /** @type {{ name: string, template: string } | null} */
     const r = await modal({
       title: 'New project', ok: 'Create',
       build: () => {
         const name = h('input', { class: 'field', type: 'text', value: 'Untitled project', maxlength: 200 });
-        let template = /** @type {'blank' | 'kestrel'} */ ('blank');
-        const pick = (/** @type {'blank' | 'kestrel'} */ t) => {
+        let template = 'blank';
+        const defaults = new Set(['Untitled project', ...SAMPLES.map((x) => x.name)]);
+        const pick = (/** @type {string} */ t) => {
           template = t;
           for (const b of opts.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.t === t));
-          if (t === 'kestrel' && name.value === 'Untitled project') name.value = 'Kestrel UAS';
-          if (t === 'blank' && name.value === 'Kestrel UAS') name.value = 'Untitled project';
+          if (defaults.has(name.value)) name.value = sampleById(t)?.name || 'Untitled project';
         };
         const opts = h('div', { class: 'templates', role: 'group', 'aria-label': 'Start from' },
           h('button', { type: 'button', class: 'template', 'data-t': 'blank', 'aria-pressed': 'true', onclick: () => pick('blank') },
             h('b', {}, 'Blank'), h('span', {}, 'The four RFLP layers, empty.')),
-          h('button', { type: 'button', class: 'template', 'data-t': 'kestrel', 'aria-pressed': 'false', onclick: () => pick('kestrel') },
-            h('b', {}, 'Kestrel UAS sample'), h('span', {}, 'A small survey drone: requirements, functions, blocks, ports and traces.')));
+          SAMPLES.map((x) => h('button', { type: 'button', class: 'template', 'data-t': x.id, 'aria-pressed': 'false', onclick: () => pick(x.id) },
+            h('b', {}, `${x.title} sample`), h('span', {}, x.blurb))));
         return {
           body: h('div', {}, h('label', { class: 'field-label' }, 'Name', name), h('div', { class: 'field-label' }, 'Start from'), opts),
           focus: name,
@@ -199,7 +225,8 @@ export async function mountHome(root, ctx) {
             h('button', { class: 'btn primary lg', type: 'button', onclick: newProject }, icon('plus'), 'New project'),
             canUseFolders() ? h('button', { class: 'btn lg', type: 'button', title: 'Open a folder of .sysml files saved by Loom (for example a git repository)', onclick: openFolder }, icon('folder'), 'Open folder') : null,
             h('button', { class: 'btn lg', type: 'button', title: 'Import a Loom project (.loom.json, .zip), a Cameo or MagicDraw model (.mdzip, .xmi), or requirements (ReqIF, Excel, CSV)', onclick: () => fileInput.click() }, icon('upload'), 'Import'),
-            h('button', { class: 'btn lg', type: 'button', title: 'Open a project from a SysML v2 API server', onclick: openFromServer }, icon('plug'), 'SysML v2 server')))),
+            h('button', { class: 'btn lg', type: 'button', title: 'Open a project from a SysML v2 API server', onclick: openFromServer }, icon('plug'), 'SysML v2 server'),
+            canInstall() ? h('button', { class: 'btn lg', type: 'button', title: 'Install Loom as an app: its own window, in your dock or start menu, and it works offline', onclick: () => install() }, icon('download'), 'Install app') : null))),
       h('section', { class: 'projects' },
         h('div', { class: 'projects-head' },
           h('h2', {}, 'Your projects'),
@@ -209,7 +236,7 @@ export async function mountHome(root, ctx) {
           ? h('div', { class: 'pgrid' }, list.map(card))
           : h('div', { class: 'pempty' },
             h('b', {}, 'No projects yet'),
-            h('p', {}, 'Start a blank project, open the Kestrel sample to look around, or bring in a project file or folder.'),
+            h('p', {}, 'Start a blank project, open a sample to look around (a survey drone, a CubeSat’s power system or a landing gear), or bring in a project file or folder.'),
             h('button', { class: 'btn', type: 'button', onclick: newProject }, icon('plus'), 'New project'))),
       h('footer', { class: 'home-foot' },
         h('span', {}, 'Part of the Pteronautics family: ',
@@ -222,9 +249,10 @@ export async function mountHome(root, ctx) {
   const closeMenus = (/** @type {Event} */ e) => { if (!(e.target instanceof Element && e.target.closest('.card-menu, .card-more'))) document.querySelectorAll('.card-menu').forEach((m) => { /** @type {HTMLElement} */ (m).hidden = true; }); };
   document.addEventListener('click', closeMenus);
   addEventListener('themechange', render);
+  const unsubInstall = onInstallChange(render);
   render();
   return {
-    newProject, importFile: () => fileInput.click(), openFolder, openFromServer,
-    dispose() { document.removeEventListener('click', closeMenus); removeEventListener('themechange', render); },
+    newProject, importFile: () => fileInput.click(), openFiles, openFolder, openFromServer,
+    dispose() { document.removeEventListener('click', closeMenus); removeEventListener('themechange', render); unsubInstall(); },
   };
 }

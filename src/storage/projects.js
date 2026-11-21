@@ -5,7 +5,7 @@ import { newId } from '../model/ids.js';
 import { createModel } from '../model/model.js';
 import { snapshot, restore, toFile, fromFile, fileNameFor } from '../model/serialize.js';
 import { isRel } from '../model/metamodel.js';
-import { buildKestrel } from '../model/sample.js';
+import { sampleById } from '../model/samples.js';
 import { projectFiles, modelFromFiles, signature } from './folder.js';
 import { zip, unzip, isZip, textFiles } from './zip.js';
 
@@ -129,10 +129,10 @@ export function createProjectStore(backend) {
       const all = /** @type {ProjectMeta[]} */ (await backend.all('meta'));
       return all.sort((a, b) => (b.opened || b.modified).localeCompare(a.opened || a.modified));
     },
-    /** @param {{ name: string, description?: string, template?: 'blank' | 'kestrel' }} o */
+    /** @param {{ name: string, description?: string, template?: string }} o  template: 'blank' or a sample's id */
     async create(o) {
       const m = createModel();
-      if (o.template === 'kestrel') buildKestrel(m);
+      if (o.template && o.template !== 'blank') sampleById(o.template)?.build(m);
       return add(await freeName(o.name.trim() || 'Untitled project'), o.description || '', m);
     },
     /** Open a project: its record and a live model. @param {string} id */

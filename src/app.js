@@ -12,6 +12,7 @@ import { prompt } from './ui/dialog.js';
 import { createProjectStore, defaultBackend } from './storage/projects.js';
 import { ELEMENTS, kindName } from './model/metamodel.js';
 import { canUseFolders } from './storage/folderfs.js';
+import { startPwa, canInstall, install } from './pwa.js';
 
 initTheme();
 const settings = createSettings();
@@ -59,7 +60,7 @@ commands.add({ id: 'problems.prev', title: 'Go to the previous problem', group: 
 commands.add({ id: 'validation.rules', title: 'Validation rules and rule sets…', group: 'Validation', keywords: ['rules', 'rule set', 'strict', 'lint', 'custom rule', 'ignore'], enabled: inProject, run: () => ws?.openRules() });
 commands.add({
   id: 'validation.run', title: 'Validate the model now', group: 'Validation', keywords: ['check', 'errors', 'lint'], enabled: inProject,
-  run: () => { if (!ws) return; ws.validator.now(); const c = ws.validator.report().counts; toast(c.error + c.warning + c.info ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes (${Math.round(ws.validator.report().ms)} ms)` : `No problems (${Math.round(ws.validator.report().ms)} ms)`); },
+  run: async () => { if (!ws) return; const r = await ws.validator.now(); const c = r.counts; toast(c.error + c.warning + c.info ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes (${Math.round(r.ms)} ms)` : `No problems (${Math.round(r.ms)} ms)`); },
 });
 commands.add({ id: 'model.newProfile', title: 'New profile (your own stereotypes)', group: 'Model', keywords: ['stereotype', 'profile', 'custom kind', 'tagged value', 'metadata'], enabled: inProject, run: () => ws?.newProfile() });
 commands.add({ id: 'help.library', title: 'Open the SysML library (help on the selection)', group: 'Help', keys: '?', keywords: ['reference', 'help', 'docs', 'what is', 'sysml', 'mbse'], enabled: inProject, run: () => ws?.openLibrary() });
@@ -73,6 +74,7 @@ commands.add({ id: 'api.open', title: 'Open a project from a SysML v2 API server
 commands.add({ id: 'interop.importModel', title: 'Import a Cameo / MagicDraw model (.mdzip, .xmi)…', group: 'Exchange', keywords: ['cameo', 'magicdraw', 'xmi', 'mdzip', 'sysml 1', 'uml', 'capella'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
 
 // ---------- projects ----------
+commands.add({ id: 'app.install', title: 'Install Loom as an app (works offline)', group: 'General', keywords: ['pwa', 'desktop', 'offline', 'install', 'app', 'window'], enabled: canInstall, run: async () => { if (await install()) toast('Installing Loom…'); } });
 commands.add({ id: 'project.new', title: 'New project…', group: 'Project', keywords: ['create'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.newProject(); } });
 commands.add({ id: 'project.import', title: 'Import a project file (.loom.json or .zip)…', group: 'Project', keywords: ['open', 'load', 'file', 'zip'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
 commands.add({ id: 'project.openFolder', title: 'Open a project folder…', group: 'Project', keywords: ['open', 'folder', 'directory', 'git', 'sysml'], enabled: canUseFolders, run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.openFolder(); } });
@@ -181,4 +183,13 @@ async function doRoute() {
 }
 
 addEventListener('hashchange', route);
-route();
+// the installed app's "New project" shortcut opens #new
+const startNew = location.hash === '#new';
+if (startNew) history.replaceState(null, '', '#/');
+route().then(() => { if (startNew) home?.newProject(); });
+
+// offline and installed: files opened with the installed app become projects
+startPwa({
+  notify: (text) => toast(text),
+  openFiles: async (files) => { if (ws) { location.hash = '#/'; await settle(); } await routing; home?.openFiles(files); },
+});

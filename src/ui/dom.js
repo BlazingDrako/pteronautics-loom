@@ -82,6 +82,7 @@ const ICONS = {
   columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4 V20 M15 4 V20"/>',
   hash: '<path d="M5 9 H19 M5 15 H19 M10 4 L8 20 M16 4 L14 20"/>',
   check: '<path d="M5 12.5 L10 17 L19 7"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7 V12 L15.5 14"/>',
   play: '<path d="M7 5 L19 12 L7 19 Z"/>',
   pause: '<path d="M8 5 V19 M16 5 V19"/>',
   step: '<path d="M6 5 L15 12 L6 19 Z M18 5 V19"/>',
