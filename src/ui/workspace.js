@@ -7,6 +7,8 @@ import { popupMenu } from './menu.js';
 import { LAYERS, ELEMENTS, kindName, isRel, childKinds, isDiagram, DIAGRAM_KINDS } from '../model/metamodel.js';
 import { createDiagramView } from '../canvas/view.js';
 import { populate, startingBlocks } from '../canvas/populate.js';
+import { createIbdView } from '../canvas/ibdview.js';
+import { packIbd } from '../canvas/ibd.js';
 import { ModelError } from '../model/model.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
@@ -103,7 +105,8 @@ export function mountWorkspace(root, ctx) {
   function viewFor(id) {
     let v = views.get(id);
     if (!v) {
-      v = createDiagramView({ model, diagramId: id, notation, selected: () => selected, select, edit });
+      const make = model.get(id)?.kind === 'ibd' ? createIbdView : createDiagramView;
+      v = make({ model, diagramId: id, notation, selected: () => selected, select, edit });
       views.set(id, v);
     }
     return v;
@@ -115,8 +118,13 @@ export function mountWorkspace(root, ctx) {
     const o = /** @type {import('../model/model.js').Element} */ (model.get(owner));
     let id = '';
     if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
-      id = tx.create(kind, { owner, name: `${o.name} structure` });
-      populate(model, tx, id, startingBlocks(model, owner), notation());
+      if (kind === 'ibd') {
+        id = tx.create(kind, { owner, name: `${o.name} internals` });
+        tx.place(id, packIbd(model, owner, { notation: notation() }));
+      } else {
+        id = tx.create(kind, { owner, name: `${o.name} structure` });
+        populate(model, tx, id, startingBlocks(model, owner), notation());
+      }
     })) return;
     expanded.add(owner);
     selected = id;
@@ -130,6 +138,7 @@ export function mountWorkspace(root, ctx) {
       ...all.map((d) => ({ label: d.name, hint: ELEMENTS[d.kind].abbr, run: () => openDiagram(d.id) })),
       ...(all.length ? /** @type {const} */ (['sep']) : []),
       { label: `New ${kindName('bdd', notation())}`, hint: '+', run: () => newDiagram('bdd') },
+      { label: `New ${kindName('ibd', notation())}${ownerFor('ibd') ? '' : ' (select a block first)'}`, hint: '+', disabled: !ownerFor('ibd'), run: () => newDiagram('ibd') },
     ], { title: all.length ? 'Open a diagram' : 'No diagrams yet' });
   }
 

@@ -5,6 +5,7 @@
 // returns its inverse, so a transaction's inverse is its inverses in reverse order.
 import { ELEMENTS, RELATIONSHIPS, LAYERS, isRel, isKind, canOwnKind, canRelate, defaultProps, kindName, isDiagram, DIAGRAM_KINDS } from './metamodel.js';
 import { newId } from './ids.js';
+import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
 
 /**
  * @typedef {{
@@ -15,7 +16,7 @@ import { newId } from './ids.js';
  *   props: Record<string, any>,
  *   layout?: { nodes: Record<string, Rect> }, // diagrams only: where each shown element sits
  * }} Element
- * @typedef {{ x: number, y: number, w: number, h: number }} Rect
+ * @typedef {{ x: number, y: number, w: number, h: number, c?: 1 }} Rect  c: collapsed (internal block diagrams)
  * @typedef {{ t: 'add', el: Element, index: number }
  *   | { t: 'del', id: string }
  *   | { t: 'set', id: string, name?: string, props?: Record<string, any> }
@@ -220,9 +221,36 @@ export function createModel(opts = {}) {
       if (!canRelate(kind, s.kind, t.kind)) return false;
       return !api.relsFrom(src).some((r) => r.kind === kind && r.target === tgt);
     },
+    /** Diagrams that show element `id` (directly or inside a part path). @param {string} id @returns {Element[]} */
+    diagramsShowing(id) { return DIAGRAM_KINDS.flatMap((k) => api.byKind(k)).filter((d) => d.layout && Object.keys(d.layout.nodes).some((key) => key === id || keyIds(key).includes(id))); },
+    /** Connectors whose ends go through or to `id`. @param {string} id @returns {Element[]} */
+    connectorsTouching(id) {
+      return api.byKind('connector').filter((c) => [c.props.end1, c.props.end2].some((end) => end && (end.port === id || end.path.includes(id))));
+    },
+    /**
+     * Check a connector end against the block that owns the connector.
+     * @param {string} ownerId @param {import('./metamodel.js').End | null} end
+     * @returns {string | null} what is wrong, or null when it is fine
+     */
+    checkEnd(ownerId, end) {
+      if (!end) return 'The end is missing';
+      let block = ownerId;
+      for (const pid of end.path) {
+        const p = els.get(pid);
+        if (!p || p.kind !== 'part') return 'An end goes through something that is not a part';
+        if (p.owner !== block) return `${p.name} is not inside ${els.get(block)?.name || 'that block'}`;
+        block = p.props.type;
+        if (!block && (end.port || pid !== end.path[end.path.length - 1])) return `${p.name} has no type, so it has no ports or parts`;
+      }
+      if (end.port) {
+        const port = els.get(end.port);
+        if (!port || port.kind !== 'port') return 'An end points at something that is not a port';
+        if (port.owner !== block) return `${port.name} is not a port of ${els.get(block)?.name || 'that block'}`;
+      }
+      if (!end.path.length && !end.port) return 'An end must name a part or a port';
+      return null;
+    },
     /** Elements that refer to `id` through a ref property. @param {string} id */
-    /** Diagrams that show element `id`. @param {string} id @returns {Element[]} */
-    diagramsShowing(id) { return DIAGRAM_KINDS.flatMap((k) => api.byKind(k)).filter((d) => d.layout && id in d.layout.nodes); },
     referrers(id) {
       return [...els.values()].filter((e) => Object.entries(ELEMENTS[e.kind]?.props || {}).some(([k, p]) => p.type === 'ref' && e.props[k] === id));
     },
@@ -272,7 +300,7 @@ export function createModel(opts = {}) {
       const id = o.id || newId();
       const name = o.name ?? nextName(kind, o.owner);
       const props = { ...defaultProps(kind), ...(o.props || {}) };
-      checkRefs(kind, props);
+      checkRefs(kind, props, o.owner);
       /** @type {Element} */
       const el = { id, kind, name, owner: o.owner, props };
       if (isDiagram(kind)) el.layout = { nodes: {} };
@@ -291,7 +319,7 @@ export function createModel(opts = {}) {
       const e = must(id);
       const spec = ELEMENTS[e.kind]?.props || {};
       for (const k of Object.keys(props)) if (!(k in spec)) throw new ModelError(`${kindName(e.kind, 'sysml')} has no property "${k}"`);
-      checkRefs(e.kind, props);
+      checkRefs(e.kind, props, e.owner || undefined);
       /** @type {Record<string, any>} */
       const changed = {};
       for (const [k, v] of Object.entries(props)) if (JSON.stringify(e.props[k]) !== JSON.stringify(v)) changed[k] = v;
@@ -318,6 +346,8 @@ export function createModel(opts = {}) {
       const doomed = [];
       const walk = (/** @type {string} */ x) => { for (const c of kids.get(x) || []) walk(c); doomed.push(x); };
       if (isRel(e.kind)) doomed.push(id); else walk(id);
+      // connectors to anything being deleted go too
+      for (const d of [...doomed]) for (const c of api.connectorsTouching(d)) if (!doomed.includes(c.id)) doomed.unshift(c.id);
       const set = new Set(doomed);
       for (const d of doomed) for (const r of [...api.relsFrom(d), ...api.relsTo(d)]) if (!set.has(r.id)) { run({ t: 'del', id: r.id }); set.add(r.id); }
       for (const d of doomed) for (const ref of api.referrers(d)) {
@@ -332,7 +362,7 @@ export function createModel(opts = {}) {
         if (set.has(dg.id) || !dg.layout) continue;
         /** @type {Record<string, null>} */
         const off = {};
-        for (const d of doomed) if (d in dg.layout.nodes) off[d] = null;
+        for (const key of Object.keys(dg.layout.nodes)) if (key !== FRAME && keyIds(key).some((x) => set.has(x))) off[key] = null;
         if (Object.keys(off).length) run({ t: 'lay', id: dg.id, nodes: off });
       }
       for (const d of doomed) run({ t: 'del', id: d });
@@ -349,12 +379,17 @@ export function createModel(opts = {}) {
       const changes = {};
       for (const [id, r] of Object.entries(patch)) {
         if (r === null) { if (id in d.layout.nodes) changes[id] = null; continue; }
-        const e = must(id);
-        if (isRel(e.kind) || isDiagram(e.kind) || !e.owner) throw new ModelError(`${e.name} cannot be shown on a diagram`);
-        const rect = { x: round(r.x), y: round(r.y), w: Math.max(40, round(r.w)), h: Math.max(30, round(r.h)) };
+        if (!isLayoutKey(id)) throw new ModelError('That is not a valid place on a diagram');
+        for (const x of keyIds(id)) {
+          const e = must(x);
+          if (isRel(e.kind) || isDiagram(e.kind) || !e.owner) throw new ModelError(`${e.name} cannot be shown on a diagram`);
+        }
+        const isPort = id.includes('#');
+        const rect = /** @type {Rect} */ ({ x: round(r.x), y: round(r.y), w: Math.max(isPort ? 8 : 40, round(r.w)), h: Math.max(isPort ? 8 : 30, round(r.h)) });
+        if (r.c) rect.c = 1;
         if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) throw new ModelError('A position must be a number');
         const old = d.layout.nodes[id];
-        if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h) changes[id] = rect;
+        if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h || (old.c || 0) !== (rect.c || 0)) changes[id] = rect;
       }
       if (Object.keys(changes).length) run({ t: 'lay', id: diagramId, nodes: changes });
     },
@@ -373,11 +408,16 @@ export function createModel(opts = {}) {
     },
   };
 
-  /** @param {string} kind @param {Record<string, any>} props */
-  function checkRefs(kind, props) {
+  /** @param {string} kind @param {Record<string, any>} props @param {string} [ownerId] the block owning a connector */
+  function checkRefs(kind, props, ownerId) {
     const spec = ELEMENTS[kind]?.props || {};
     for (const [k, v] of Object.entries(props)) {
       const p = spec[k];
+      if (p && p.type === 'end' && v !== null) {
+        const bad = ownerId ? api.checkEnd(ownerId, v) : 'A connector needs an owner';
+        if (bad) throw new ModelError(bad);
+        continue;
+      }
       if (!p || p.type !== 'ref' || v === null) continue;
       const target = els.get(v);
       if (!target || !p.kinds.includes(target.kind)) throw new ModelError(`${p.label} must be a ${p.kinds.map((x) => kindName(x, 'sysml')).join(' or ')}`);

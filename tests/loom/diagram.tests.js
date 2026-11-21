@@ -53,7 +53,7 @@ export function diagramTests(log) {
   dg.layout.nodes[a] = { x: 'left', y: 0, w: 100, h: 50 };
   dg.layout.nodes[b].w = 99999;
   const fixed = restore(bad).get(d)?.layout?.nodes || {};
-  log('Loading drops entries for missing elements and bad rectangles, and clamps sizes', !('ghost99' in fixed) && !(a in fixed) && fixed[b].w === 4000);
+  log('Loading drops entries for missing elements and bad rectangles, and clamps sizes', !('ghost99' in fixed) && !(a in fixed) && fixed[b].w === 8000);
 
   // ---------- what boxes show ----------
   const k = buildKestrel(createModel());
@@ -75,7 +75,7 @@ export function diagramTests(log) {
   // ---------- lines ----------
   const shown = new Set(Object.keys(kd.layout.nodes));
   const edges = edgesFor(k, shown);
-  log('Composition lines come from typed parts', edges.filter((e) => e.kind === 'composition').length === 5, edges.map((e) => e.label).join(','));
+  log('Composition lines come from typed parts', edges.filter((e) => e.kind === 'composition').length === 6, edges.map((e) => e.label).join(','));
   log('Generalization lines come from relationships', edges.some((e) => e.kind === 'generalization' && e.from === batt.id));
   shown.delete(batt.id);
   log('Lines to hidden blocks are not drawn', !edgesFor(k, shown).some((e) => e.to === batt.id || e.from === batt.id));

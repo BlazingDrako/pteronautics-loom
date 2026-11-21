@@ -64,9 +64,9 @@ export async function runBench(report) {
   host.append(view.el);
   await frame(); await frame();
 
-  view.setCamera({ x: -40, y: -40, k: 0.1 });
-  const tAll = view.stats().lastRenderMs;
-  report({ name: `Draw all 2,000 blocks and ${edgesFor(dm, new Set(Object.keys(/** @type {any} */ (dm.get(did)).layout.nodes))).length.toLocaleString()} lines at 10% zoom (first draw)`, ms: tAll, budget: 250, note: 'one-off cost; panning after it is cheap' });
+  // the very first draw, measured the same way whether or not the window is visible
+  const tAll = time(() => view.setCamera({ x: -40, y: -40, k: 0.1 }));
+  report({ name: `First paint: all 2,000 blocks and ${edgesFor(dm, new Set(Object.keys(/** @type {any} */ (dm.get(did)).layout.nodes))).length.toLocaleString()} lines at 10% zoom`, ms: tAll, budget: 1000, note: 'plan budget: first paint under 1 s; measures every box, routes every line and builds every shape once' });
   /** @type {number[]} */
   const pansFar = [];
   for (let i = 0; i < 20; i++) { view.setCamera({ x: -40 + i * 30, y: -40 + i * 10, k: 0.1 }); pansFar.push(view.stats().lastRenderMs); }

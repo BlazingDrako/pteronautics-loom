@@ -10,7 +10,9 @@
 /**
  * @typedef {{ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
  *   | { type: 'enum', label: string, options: string[], default: string }
- *   | { type: 'ref', label: string, kinds: string[], default?: null }} PropSpec
+ *   | { type: 'ref', label: string, kinds: string[], default?: null }
+ *   | { type: 'end', label: string, default?: null }} PropSpec
+ * @typedef {{ path: string[], port: string | null }} End  a connector end: parts from the owning block, then an optional port
  */
 /**
  * @typedef {{
@@ -21,6 +23,7 @@
  *   props: Record<string, PropSpec>,
  *   defaultLayer?: Layer,
  *   diagram?: boolean,     // a view: it shows other elements and keeps their layout
+ *   noMenu?: boolean,      // created by drawing, not from "Add" menus
  *   help: string,
  * }} ElementKind
  * @typedef {{
@@ -92,11 +95,24 @@ export const ELEMENTS = {
     owners: ['partDef', 'interfaceDef'],
     props: {
       type: { type: 'ref', label: 'Type', kinds: ['interfaceDef'] },
+      portKind: { type: 'enum', label: 'Kind', options: ['proxy', 'full'], default: 'proxy' },
       direction: { type: 'enum', label: 'Direction', options: ['inout', 'in', 'out'], default: 'inout' },
       conjugated: { type: 'bool', label: 'Conjugated (~)', default: false },
       doc: DOC,
     },
     help: 'A point on a block\'s boundary where things cross: power, data, force.',
+  },
+  connector: {
+    names: { sysml: 'Connector', v2: 'connection', guided: 'Link' }, abbr: 'conn', noMenu: true,
+    owners: ['partDef'],
+    props: {
+      end1: { type: 'end', label: 'From' },
+      end2: { type: 'end', label: 'To' },
+      item: { type: 'text', label: 'Item flow', default: '', placeholder: '48 V DC' },
+      flow: { type: 'enum', label: 'Flow direction', options: ['None', 'From → To', 'To → From', 'Both ways'], default: 'None' },
+      doc: DOC,
+    },
+    help: 'Links two ports (or parts) inside a block. An item flow says what moves along it.',
   },
   attribute: {
     names: { sysml: 'Value property', v2: 'attribute', guided: 'Property' }, abbr: 'val',
@@ -120,6 +136,18 @@ export const ELEMENTS = {
       doc: DOC,
     },
     help: 'Shows blocks, what they are made of (composition) and what they are kinds of (generalization). A view: removing a block from it never deletes the block.',
+  },
+  ibd: {
+    names: { sysml: 'Internal block diagram', v2: 'interconnection view', guided: 'Connection diagram' }, abbr: 'ibd', diagram: true,
+    owners: ['partDef'],
+    props: {
+      showTypes: { type: 'bool', label: 'Types on parts and ports', default: true },
+      showPortNames: { type: 'bool', label: 'Port names', default: true },
+      showFlows: { type: 'bool', label: 'Item flows', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows the inside of one block: its parts (nested as deep as you like), their ports, and the connectors and item flows between them.',
   },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
@@ -200,7 +228,7 @@ export function canOwnKind(owner, child) {
 
 /** Element kinds an element of kind `owner` may contain, in menu order. @param {string} owner */
 export function childKinds(owner) {
-  return Object.keys(ELEMENTS).filter((k) => canOwnKind(owner, k));
+  return Object.keys(ELEMENTS).filter((k) => canOwnKind(owner, k) && !ELEMENTS[k].noMenu);
 }
 
 /** May a relationship of `kind` go from an element of `src` kind to one of `tgt` kind? @param {string} kind @param {string} src @param {string} tgt */
@@ -216,6 +244,6 @@ export function defaultProps(kind) {
   const spec = ELEMENTS[kind]?.props || {};
   /** @type {Record<string, any>} */
   const out = {};
-  for (const [k, p] of Object.entries(spec)) out[k] = p.type === 'ref' ? null : ('default' in p ? p.default : '');
+  for (const [k, p] of Object.entries(spec)) out[k] = p.type === 'ref' || p.type === 'end' ? null : ('default' in p ? p.default : '');
   return out;
 }

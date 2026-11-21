@@ -59,9 +59,10 @@ export function nodeContent(m, el, diagram, n) {
   if (flag(diagram, 'showPorts')) {
     const rows = kids.filter((k) => k.kind === 'port').map((k) => {
       const t = typeName(k), dir = k.props.direction && k.props.direction !== 'inout' ? `${k.props.direction} ` : '';
-      return guided ? `${k.name}${t ? ` (${t})` : ''}` : `${dir}${k.name}${t ? ` : ${k.props.conjugated ? '~' : ''}${t}` : ''}`;
+      const full = k.props.portKind === 'full' ? '«full» ' : '';
+      return guided ? `${k.name}${t ? ` (${t})` : ''}` : `${full}${dir}${k.name}${t ? ` : ${k.props.conjugated ? '~' : ''}${t}` : ''}`;
     });
-    if (rows.length) compartments.push({ title: guided ? 'Connection points' : n === 'v2' ? 'ports' : 'proxy ports', rows });
+    if (rows.length) compartments.push({ title: guided ? 'Connection points' : 'ports', rows });
   }
   const layer = m.layerOf(el.id);
   return { stereo, name: el.name, compartments, layerColor: layer ? (LAYERS.find((l) => l.id === layer)?.color || null) : null };

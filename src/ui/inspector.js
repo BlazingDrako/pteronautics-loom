@@ -52,6 +52,13 @@ export function createInspector(ctx) {
       const set = (/** @type {any} */ v) => ctx.edit(`Change ${p.label.toLowerCase()}`, (tx) => tx.setProps(e.id, { [key]: v }));
       if (p.type === 'text') return textField(p.label, value ?? '', set, { placeholder: p.placeholder, mono: key === 'reqId' || key === 'value' || key === 'unit' || key === 'multiplicity' });
       if (p.type === 'longtext') return textField(p.label, value ?? '', set, { long: true, placeholder: p.placeholder });
+      if (p.type === 'end') {
+        // a connector end: the parts it runs through, then the port
+        const ids = value ? [...value.path, ...(value.port ? [value.port] : [])] : [];
+        return h('div', { class: 'field-label' }, p.label,
+          ids.length ? h('div', { class: 'end-path' }, ids.map((x, i) => [i ? h('span', { class: 'sep' }, '.') : null, h('button', { class: 'linkish mono', type: 'button', onclick: () => ctx.select(x) }, ctx.model.get(x)?.name || '?')]))
+            : h('span', { class: 'muted small' }, 'Not set'));
+      }
       if (p.type === 'bool') {
         const cb = h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(!!value), 'aria-label': p.label, onclick: () => set(!value) });
         return h('div', { class: 'opt' }, h('span', {}, p.label), cb);

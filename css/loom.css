@@ -459,3 +459,58 @@ select.field { padding-right: 6px; }
 .guide { stroke: var(--hl); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .lasso { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 @media (max-width: 900px) { .dtool .btn span, .dtool .btn { font-size: 11.5px; } .dstage { min-height: 420px; } }
+
+/* =====================================================================================
+   M3: internal block diagrams
+   ===================================================================================== */
+.dtool-hint { font-size: 11.5px; color: var(--text-3); margin-left: 6px; white-space: nowrap; }
+.end-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 12px; }
+.end-path .sep { color: var(--text-3); }
+
+.ibd .frame-box { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.ibd .frame.sel .frame-box { stroke: var(--accent); stroke-width: 2; }
+.ibd .frame.drop .frame-box { stroke: var(--accent); stroke-dasharray: 6 4; }
+.ibd .frame-tab { fill: var(--bg-elev); stroke: var(--border-strong); stroke-width: 1.5; cursor: move; }
+.ibd .frame-title { font: 600 12.5px var(--font); fill: var(--text-2); pointer-events: none; }
+
+.ibd .part { cursor: move; }
+.ibd .part-box { fill: var(--bg-elev); stroke: var(--border-strong); stroke-width: 1.2; }
+.ibd .part.d2 .part-box { fill: color-mix(in srgb, var(--bg-elev) 82%, var(--stage)); }
+.ibd .part.d3 .part-box, .ibd .part.d4 .part-box { fill: color-mix(in srgb, var(--bg-elev) 65%, var(--stage)); }
+.ibd .part:hover > .part-box { stroke: var(--accent); }
+.ibd .part.sel > .part-box { stroke: var(--accent); stroke-width: 2; }
+.ibd .part.drop > .part-box { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; fill: var(--accent-soft); }
+.ibd .part.link-target > .part-box { stroke: var(--good); stroke-width: 2; }
+.ibd .part-name { font: 600 13px var(--font); fill: var(--text); pointer-events: none; }
+.ibd .part-type { font-weight: 400; fill: var(--accent); }
+.ibd .part-hint { font: 400 11px var(--mono); fill: var(--text-3); pointer-events: none; }
+.ibd .coll { cursor: pointer; }
+.ibd .coll rect { fill: transparent; }
+.ibd .coll:hover rect { fill: var(--border); }
+.ibd .coll path { fill: none; stroke: var(--text-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.ibd .port { cursor: crosshair; }
+.ibd .port-box { fill: var(--bg-elev); stroke: var(--accent); stroke-width: 1.6; }
+.ibd .port.out .port-box { fill: var(--accent); }
+.ibd .port.full .port-box { stroke-width: 2.6; }
+.ibd .port .port-arrow { fill: var(--accent); pointer-events: none; }
+.ibd .port.out .port-arrow { fill: var(--on-accent); }
+.ibd .port:hover .port-box, .ibd .port.sel .port-box { stroke: var(--hl); stroke-width: 2.2; }
+.ibd .port.ok .port-box { stroke: var(--good); stroke-width: 2.4; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--good) 70%, transparent)); }
+.ibd .port.ok.hover .port-box { fill: var(--good); }
+.ibd .port.no { opacity: .3; }
+.ibd .port.source .port-box { stroke: var(--hl); stroke-width: 2.4; }
+.ibd .port-label { font: 400 10.5px var(--mono); fill: var(--text-2); paint-order: stroke; stroke: var(--stage); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+
+.ibd .conn { fill: none; stroke: var(--text-2); stroke-width: 1.5; pointer-events: none; }
+.ibd .conn.sel { stroke: var(--accent); stroke-width: 2.4; }
+.ibd .c-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }
+.ibd .c-hit:hover + .conn { stroke: var(--accent); }
+.ibd .flow-arrow { fill: var(--hl); pointer-events: none; }
+.ibd .flow-arrow.sel { fill: var(--accent); }
+.ibd .flow-label { font: 500 10.5px var(--mono); fill: var(--hl); paint-order: stroke; stroke: var(--stage); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.ibd .rubber { fill: none; stroke: var(--hl); stroke-width: 1.8; stroke-dasharray: 5 4; pointer-events: none; vector-effect: non-scaling-stroke; }
+.ibd .rubber.ok { stroke: var(--good); }
+.ctip { position: absolute; z-index: 4; max-width: 320px; padding: 6px 10px; border-radius: 8px; background: var(--bg-elev); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg); font-size: 12px; color: var(--text); pointer-events: none; overflow-wrap: anywhere; }
+.ctip.good { border-color: var(--good); }
+.ctip.bad { border-color: var(--bad); color: var(--bad); }

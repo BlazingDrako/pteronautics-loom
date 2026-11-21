@@ -12,7 +12,20 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.3.0: block definition diagrams)
+## What works today (0.4.0: internal block diagrams)
+
+- **Internal block diagrams** (ibd), one per block, showing its inside:
+  - **Nested parts** as deep as you like (`propulsion : Propulsion System` containing `battery`, `esc`, `motor`). Moving a part moves everything inside it; containers grow to fit; the chevron **collapses** a part to a single box.
+  - **Ports** on part edges, with direction arrows (out points away, in points in), **proxy and full** ports, **conjugated** (~) ports, and the block's own ports on the diagram frame. ⌥-drag slides a port along its edge.
+  - **Smart connect**: drag from any port. Compatible ports glow green, the rest fade, and the reason shows by the cursor ("Different interfaces: Three-Phase AC and DC Power 48 V", "Both ports receive", delegation rules for the block's own ports). Drop on a part to give it a matching port and connect in one move.
+  - **Connectors** routed at right angles around parts, with **item flows**: an arrow for the direction and a label for what flows (it defaults to the interface name).
+  - Drag a part **into another part** to move it there in the model. Drop blocks from the browser to add parts typed by them; drop an interface block on a port to type it.
+  - **Part** and **Port** buttons, **Show all** (adds what is in the model but not on the diagram) and **Tidy layout**, which lays parts out left to right along their connections.
+  - View options: types, port names, item flows, snapping.
+- **Model:** connectors (owned by a block, with ends that follow parts down to a port), item flow and flow direction, full/proxy ports. Deleting a part or port deletes its connectors; undo brings them back.
+- The Kestrel sample now has an ESC, three interfaces, connectors with item flows, and two internal block diagrams (Propulsion internals, Air vehicle internals).
+
+### 0.3.0: block definition diagrams
 
 - **Block definition diagrams** (bdd), drawn by Loom's own diagram engine:
   - Blocks and interface blocks with **parts, values and ports compartments**, in SysML, SysML v2 or Guided wording. Text that doesn't fit is cut with an ellipsis, never spilled.
@@ -35,7 +48,7 @@ They are separate programs under the Pteronautics name. Loom stands on its own: 
 - **Notation**: SysML (Block, Part property…), SysML v2 (part def, part…) or Guided (Part type, Part…), switched live.
 - **Autosave** a moment after every change, plus the Pteronautics Works switch (off by default) and light and dark themes.
 
-**Not built yet:** internal block diagrams and the other diagram kinds, tables and matrices, the RFLP trace view, the Systems V home, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
+**Not built yet:** the requirement, activity, state machine, sequence, parametric, use case and package diagrams, tables and matrices, the RFLP trace view, the Systems V home, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
 
 ## Run it
 
@@ -47,7 +60,7 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, and diagram (placing, boxes, lines, layout) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) and internal block diagram (connectors, connection rules, nesting, layout) tests. Results are also left in `window.__results`.
 
 **Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model, and panning, zooming, editing and moving blocks on a 2,000-block diagram.
 
@@ -85,6 +98,10 @@ src/canvas/route.js          orthogonal line routing
 src/canvas/layout.js         automatic layered layout
 src/canvas/measure.js        text measurement and ellipsis
 src/canvas/populate.js       filling a new diagram
+src/canvas/ibd.js            what an internal block diagram shows, nested layout, connector routing
+src/canvas/ibdview.js        the internal block diagram canvas
+src/canvas/connect.js        connection rules: which ports may connect, and why not
+src/model/paths.js           diagram layout keys (part paths and ports)
 src/ui/fuzzy.js              fuzzy matching and ranking
 src/ui/dom.js                DOM helpers, icons, brand, theme
 tests/                       test page, runner and Loom tests
