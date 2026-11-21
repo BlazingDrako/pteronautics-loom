@@ -1,6 +1,6 @@
 // The Kestrel UAS sample: a small but complete RFLP model, used for "Start from a sample"
 // and as a test fixture. Values are illustrative.
-import { populate } from '../canvas/populate.js';
+import { populate, populateReq } from '../canvas/populate.js';
 import { packIbd } from '../canvas/ibd.js';
 
 /** @param {import('./model.js').Model} m */
@@ -12,15 +12,19 @@ export function buildKestrel(m) {
     tx.rename(m.root().id, 'Kestrel UAS');
 
     // Requirements
-    const needs = tx.create('package', { owner: R, name: 'Stakeholder needs' });
+    const needs = tx.create('package', { owner: R, name: 'Stakeholder needs', props: { idPrefix: 'SN-' } });
     const sn1 = tx.create('requirement', { owner: needs, name: 'Survey a large site per sortie', props: { reqId: 'SN-01', text: 'The operator shall be able to survey 40 km² in one sortie.', priority: 'Must' } });
-    const sys = tx.create('package', { owner: R, name: 'System requirements' });
+    const sn2 = tx.create('requirement', { owner: needs, name: 'Carry a mapping camera', props: { reqId: 'SN-02', text: 'The operator shall be able to fly a survey-grade mapping camera.', priority: 'Must' } });
+    const sys = tx.create('package', { owner: R, name: 'System requirements', props: { idPrefix: 'REQ-' } });
     const endur = tx.create('requirement', { owner: sys, name: 'Endurance', props: { reqId: 'REQ-PRF-001', text: 'The air vehicle shall fly for at least 3.0 h at survey speed.', priority: 'Must', method: 'Analysis' } });
     const cruise = tx.create('requirement', { owner: sys, name: 'Cruise speed', props: { reqId: 'REQ-PRF-004', text: 'The air vehicle shall cruise at 22 m/s or faster.', priority: 'Should', method: 'Analysis' } });
     const energy = tx.create('requirement', { owner: sys, name: 'Usable energy', props: { reqId: 'REQ-PWR-003', text: 'The battery shall provide at least 650 Wh of usable energy.', priority: 'Must', method: 'Analysis' } });
     const payload = tx.create('requirement', { owner: sys, name: 'Payload capacity', props: { reqId: 'REQ-PLD-002', text: 'The air vehicle shall carry a 2.5 kg camera payload.', priority: 'Must', method: 'Inspection' } });
     const tests = tx.create('package', { owner: R, name: 'Verification' });
-    const tEndur = tx.create('testCase', { owner: tests, name: 'Endurance analysis', props: { method: 'Analysis' } });
+    const tEndur = tx.create('testCase', { owner: tests, name: 'Endurance analysis', props: { method: 'Analysis', result: 'Pass' } });
+    const tEnergy = tx.create('testCase', { owner: tests, name: 'Battery discharge test', props: { method: 'Test', result: 'Pass' } });
+    const tPayload = tx.create('testCase', { owner: tests, name: 'Payload fit check', props: { method: 'Inspection', result: 'Not run' } });
+    const tCruise = tx.create('testCase', { owner: tests, name: 'Cruise flight test', props: { method: 'Test', result: 'Fail' } });
 
     // Functions
     const fly = tx.create('action', { owner: F, name: 'Fly the survey' });
@@ -79,6 +83,12 @@ export function buildKestrel(m) {
     // Relationships
     tx.link('derive', energy, endur);
     tx.link('derive', endur, sn1);
+    tx.link('derive', cruise, sn1);
+    tx.link('derive', payload, sn2);
+    tx.link('verify', tEnergy, energy);
+    tx.link('verify', tPayload, payload);
+    tx.link('verify', tCruise, cruise);
+    tx.link('refine', thrust, cruise);
     tx.link('satisfy', batt, energy);
     tx.link('satisfy', pay, payload);
     tx.link('satisfy', prop, cruise);
@@ -89,6 +99,13 @@ export function buildKestrel(m) {
     tx.link('allocate', batt, pBatt);
     tx.link('allocate', motor, pMotor);
     tx.link('allocate', pay, pCam);
+
+    // requirement views
+    const reqDia = tx.create('req', { owner: R, name: 'Endurance and payload' });
+    populateReq(m, tx, reqDia, 'sysml', [sn1, sn2, endur, cruise, energy, payload, batt, prop, pay, tEndur, tEnergy, tCruise, tPayload]);
+    tx.create('table', { owner: R, name: 'All requirements' });
+    tx.create('matrix', { owner: R, name: 'Satisfy matrix', props: { rel: 'satisfy', rows: 'partDef', cols: 'requirement' } });
+    tx.create('matrix', { owner: F, name: 'Function allocation', props: { rel: 'allocate', rows: 'action', cols: 'partDef@l' } });
   });
   // the whole air vehicle, with propulsion opened up, and the avionics driving it
   m.transact('Air vehicle internals', (tx) => {

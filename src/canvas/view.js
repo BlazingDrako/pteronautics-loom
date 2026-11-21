@@ -9,11 +9,12 @@
 // from the model browser to show them.
 import { h, s, icon, toast, formatKeys } from '../ui/dom.js';
 import { popupMenu } from '../ui/menu.js';
-import { nodeContent, naturalSize, edgesFor, canShow, BOX } from './bdd.js';
+import { naturalSize, heightAt, wraps, compartmentLines, titleH, BOX, bddKind } from './bdd.js';
+import { reqKind } from './req.js';
 import { routeAll, pathData } from './route.js';
 import { layered } from './layout.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
-import { ELEMENTS, kindName } from '../model/metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, kindName } from '../model/metamodel.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -47,6 +48,9 @@ const esc = (t) => t.replace(/[&<>"]/g, (c) => /** @type {Record<string, string>
 export function createDiagramView(ctx) {
   const { model, diagramId } = ctx;
   const diagram = () => model.get(diagramId);
+  /** What this kind of diagram shows and how. @type {import('./bdd.js').DiagramKind} */
+  const K = /** @type {any} */ (diagram()?.kind === 'req' ? reqKind : bddKind);
+  const { canShow } = K;
   /** @type {Camera} */
   const cam = cameras.get(diagramId) || { x: 0, y: 0, k: 1 };
   cameras.set(diagramId, cam);
@@ -61,6 +65,9 @@ export function createDiagramView(ctx) {
   let guides = [];
   /** @type {{ x: number, y: number, w: number, h: number } | null} */
   let lasso = null;
+  /** Dragging from a box's link handle to relate it to another box. @type {null | { from: string, at: { x: number, y: number }, over: string | null, ok: boolean | null, kinds: string[] }} */
+  let linking = null;
+  const tip = h('div', { class: 'ctip', hidden: true });
   let spaceDown = false;
   let lastRenderMs = 0;
 
@@ -75,14 +82,13 @@ export function createDiagramView(ctx) {
   const live = h('div', { class: 'sr-only', 'aria-live': 'polite' });
   const empty = h('div', { class: 'dempty', hidden: true },
     h('b', {}, 'This diagram is empty'),
-    h('p', {}, 'Drag blocks here from the model browser, or add one with the Block button.'));
-  const stage = h('div', { class: 'dstage', tabindex: '0', role: 'application', 'aria-roledescription': 'diagram' }, svg, empty, live);
+    h('p', {}, K.empty));
+  const stage = h('div', { class: 'dstage', tabindex: '0', role: 'application', 'aria-roledescription': 'diagram' }, svg, empty, live, tip);
   const zoomLabel = h('span', { class: 'dzoom mono' });
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Diagram tools' },
-    h('button', { class: 'btn sm', type: 'button', onclick: () => addNew('partDef'), title: 'Add a new block to the model and this diagram' }, icon('plus'), 'Block'),
-    h('button', { class: 'btn sm', type: 'button', onclick: () => addNew('interfaceDef'), title: 'Add a new interface block' }, icon('plus'), 'Interface'),
+    K.add.map((a) => h('button', { class: 'btn sm', type: 'button', onclick: () => addNew(a.kind), title: a.title }, icon('plus'), a.label)),
     h('span', { class: 'dtool-sep' }),
-    h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
+    h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: K.kind === 'req' ? 'Show what the selection breaks down into, comes from, and is satisfied, refined or verified by' : 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
     h('button', { class: 'btn sm', type: 'button', onclick: () => tidy(), title: `Tidy layout (${formatKeys('Shift+L')})` }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
     h('span', { style: { flex: '1' } }),
@@ -97,7 +103,7 @@ export function createDiagramView(ctx) {
   const shownIds = () => Object.keys(layout()).filter((id) => canShow(model.get(id)));
   // What each box shows is cached per element and recomputed only when a change touches it
   // (the element, something inside it, or a type its parts refer to).
-  /** @type {Map<string, { content: import('./bdd.js').NodeContent, min: { w: number, h: number }, stamp: number }>} */
+  /** @type {Map<string, { content: import('./bdd.js').NodeContent, min: { w: number, h: number }, wrap: boolean, heights: Map<number, number>, stamp: number }>} */
   const contentCache = new Map();
   let stamp = 0;
   /** Things that change every box at once. */
@@ -109,9 +115,17 @@ export function createDiagramView(ctx) {
   function content(id) {
     const hit = contentCache.get(id);
     if (hit) return hit;
-    const c = nodeContent(model, /** @type {any} */ (model.get(id)), /** @type {any} */ (diagram()), ctx.notation());
-    const v = { content: c, min: naturalSize(c), stamp: ++stamp };
+    const c = K.nodeContent(model, /** @type {any} */ (model.get(id)), /** @type {any} */ (diagram()), ctx.notation());
+    const v = { content: c, min: naturalSize(c), wrap: wraps(c), heights: new Map(), stamp: ++stamp };
     contentCache.set(id, v);
+    return v;
+  }
+  /** The shortest a box can be at a width (wrapped text needs more lines when narrower). @param {string} id @param {number} w */
+  function minH(id, w) {
+    const c = content(id);
+    if (!c.wrap) return c.min.h;
+    let v = c.heights.get(w);
+    if (v === undefined) { v = heightAt(c.content, w); c.heights.set(w, v); }
     return v;
   }
   const unsubModel = model.subscribe((e) => {
@@ -121,6 +135,8 @@ export function createDiagramView(ctx) {
       const el = model.get(id);
       if (!el) { contentCache.clear(); return; } // something was deleted: start over (rare)
       contentCache.delete(id);
+      if (el.source) contentCache.delete(el.source);
+      if (el.target) contentCache.delete(el.target);
       if (el.owner) contentCache.delete(el.owner);
       if (el.kind === 'partDef' || el.kind === 'interfaceDef') for (const r of model.referrers(id)) if (r.owner) contentCache.delete(r.owner);
     }
@@ -128,7 +144,7 @@ export function createDiagramView(ctx) {
   /** The box as drawn: stored size, never shorter than the content. @param {string} id @returns {Rect} */
   function rectOf(id) {
     const r = override.get(id) || layout()[id];
-    return { x: r.x, y: r.y, w: r.w, h: Math.max(r.h, content(id).min.h) };
+    return { x: r.x, y: r.y, w: r.w, h: Math.max(r.h, minH(id, r.w)) };
   }
   const size = () => ({ w: stage.clientWidth || 800, h: stage.clientHeight || 600 });
   /** @param {number} sx @param {number} sy */
@@ -158,7 +174,7 @@ export function createDiagramView(ctx) {
     clearTimeout(fullTimer);
     fullTimer = setTimeout(() => {
       const ids = shownIds();
-      routeCache = { key: String(++stamp), routes: routeAll(new Map(ids.map((id) => [id, rectOf(id)])), edgesFor(model, new Set(ids))) };
+      routeCache = { key: String(++stamp), routes: routeAll(new Map(ids.map((id) => [id, rectOf(id)])), K.edgesFor(model, new Set(ids))) };
       invalidate();
     }, 250);
   }
@@ -182,22 +198,28 @@ export function createDiagramView(ctx) {
       g.append(s('text', { class: 'n-name', x: r.w / 2, y: 37 }, ellipsize(c.name, inner, FONTS.name)));
       let y = BOX.header;
       for (const comp of c.compartments) {
-        if (y + BOX.titleH > r.h) break;
-        g.append(s('line', { class: 'n-sep', x1: 0, x2: r.w, y1: y, y2: y }));
-        g.append(s('text', { class: 'n-title', x: BOX.padX, y: y + 14 }, ellipsize(comp.title.toUpperCase(), inner, FONTS.title)));
-        let ry = y + BOX.titleH;
-        for (const row of comp.rows) {
+        const th = titleH(comp);
+        if (y + th > r.h) break;
+        if (!comp.joined) g.append(s('line', { class: 'n-sep', x1: 0, x2: r.w, y1: y, y2: y }));
+        if (comp.title) g.append(s('text', { class: 'n-title', x: BOX.padX, y: y + 14 }, ellipsize(comp.title.toUpperCase(), inner, FONTS.title)));
+        let ry = y + th;
+        const lines = compartmentLines(comp, inner);
+        for (const row of lines) {
           if (ry + BOX.rowH > r.h + 2) break;
-          g.append(s('text', { class: 'n-row', x: BOX.padX, y: ry + 12 }, ellipsize(row, inner, FONTS.row)));
+          g.append(s('text', { class: 'n-row' + (comp.wrap ? ' wrap' : ''), x: BOX.padX, y: ry + 12 }, ellipsize(row, inner, FONTS.row)));
           ry += BOX.rowH;
         }
-        y += BOX.titleH + comp.rows.length * BOX.rowH + BOX.compPad;
+        y += th + lines.length * BOX.rowH + BOX.compPad;
       }
     }
     if (selected && sel.size === 1) {
       for (const [hx, hy, kind] of /** @type {[number, number, string][]} */ ([[r.w, r.h / 2, 'e'], [r.w / 2, r.h, 's'], [r.w, r.h, 'se']])) {
         g.append(s('rect', { class: `handle h-${kind}`, 'data-handle': kind, x: hx - 4.5, y: hy - 4.5, width: 9, height: 9, rx: 2 }));
       }
+      // drag from here to another box to relate them
+      const lk = s('g', { class: 'link-handle', 'data-link': id, transform: `translate(${r.w + 14} 14)` });
+      lk.append(s('title', {}, 'Drag to another box to relate them'), s('circle', { r: 9 }), s('path', { d: 'M-3.5 3.5 L3.5 -3.5 M-1 -3.5 H3.5 V1' }));
+      g.append(lk);
     }
     return g;
   }
@@ -214,7 +236,7 @@ export function createDiagramView(ctx) {
     stage.style.backgroundSize = `${grid * cam.k}px ${grid * cam.k}px`;
     stage.style.backgroundPosition = `${-cam.x * cam.k}px ${-cam.y * cam.k}px`;
     zoomLabel.textContent = `${Math.round(cam.k * 100)}%`;
-    stage.setAttribute('aria-label', `${kindName(d.kind, ctx.notation())}: ${d.name}. ${ids.length} blocks. Arrow keys move the selection, Delete removes it from the diagram.`);
+    stage.setAttribute('aria-label', `${kindName(d.kind, ctx.notation())}: ${d.name}. ${ids.length} ${K.noun}. Arrow keys move the selection, Delete removes it from the diagram.`);
 
     const gk = globalKey();
     if (gk !== lastGlobal) { lastGlobal = gk; contentCache.clear(); geomDirty = true; }
@@ -225,7 +247,7 @@ export function createDiagramView(ctx) {
     if (geomDirty || override.size) {
       const rects = new Map(ids.map((id) => [id, rectOf(id)]));
       if (geomDirty && !override.size) {
-        const edges = edgesFor(model, new Set(ids));
+        const edges = K.edgesFor(model, new Set(ids));
         const esig = edges.map((e) => `${e.id}>${e.from}>${e.to}>${e.label || ''}`).join('|');
         /** @type {string[]} */
         const changed = [];
@@ -245,7 +267,7 @@ export function createDiagramView(ctx) {
         lastEdgeSig = esig;
         allRects = rects;
       } else if (geomDirty || !routeCache.routes.length) {
-        routeCache = { key: String(++stamp), routes: routeAll(rects, edgesFor(model, new Set(ids))) };
+        routeCache = { key: String(++stamp), routes: routeAll(rects, K.edgesFor(model, new Set(ids))) };
         allRects = rects;
       } else {
         // while dragging, re-route only the lines touching what moves
@@ -294,6 +316,26 @@ export function createDiagramView(ctx) {
           const [lx, ly, anchor] = side === 't' ? [end.x + 6, end.y - 6, 'start'] : side === 'b' ? [end.x + 6, end.y + 15, 'start'] : side === 'l' ? [end.x - 6, end.y - 6, 'end'] : [end.x + 6, end.y - 6, 'start'];
           parts.push(`<text class="e-label" x="${lx}" y="${ly}" text-anchor="${anchor}">${esc(ellipsize(rt.edge.label, 160, FONTS.label))}</text>`);
         }
+      } else if (rt.edge.kind === 'containment') {
+        // ⊕ at the container end
+        const p = pts[0], u = { x: Math.sign(pts[1].x - p.x), y: Math.sign(pts[1].y - p.y) }, n = { x: -u.y, y: u.x };
+        const c = { x: p.x + u.x * 7, y: p.y + u.y * 7 };
+        parts.push(`<circle class="contain${on ? ' sel' : ''}" cx="${c.x}" cy="${c.y}" r="7"/><path class="contain-x${on ? ' sel' : ''}" d="M${c.x - u.x * 7} ${c.y - u.y * 7} L${c.x + u.x * 7} ${c.y + u.y * 7} M${c.x - n.x * 7} ${c.y - n.y * 7} L${c.x + n.x * 7} ${c.y + n.y * 7}"/>`);
+      } else if (rt.edge.kind === 'dependency') {
+        const q = pts[pts.length - 1], a = pts[pts.length - 2];
+        const u = { x: Math.sign(q.x - a.x), y: Math.sign(q.y - a.y) }, n = { x: -u.y, y: u.x };
+        parts.push(`<path class="arrow${on ? ' sel' : ''}" d="M${q.x - u.x * 11 + n.x * 6} ${q.y - u.y * 11 + n.y * 6} L${q.x} ${q.y} L${q.x - u.x * 11 - n.x * 6} ${q.y - u.y * 11 - n.y * 6}"/>`);
+        if (showRoles && rt.edge.label) {
+          // on the longest segment, beside the line
+          let bi = 1, bl = -1;
+          for (let i = 1; i < pts.length; i++) { const l = Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y); if (l > bl) { bl = l; bi = i; } }
+          const s0 = pts[bi - 1], s1 = pts[bi], mx = (s0.x + s1.x) / 2, my = (s0.y + s1.y) / 2;
+          const vertical = s0.x === s1.x;
+          const text = esc(ellipsize(rt.edge.label, vertical ? 140 : Math.max(40, bl - 16), FONTS.label));
+          parts.push(vertical
+            ? `<text class="e-label dep" x="${mx + 6}" y="${my + 4}" text-anchor="start">${text}</text>`
+            : `<text class="e-label dep" x="${mx}" y="${my - 6}" text-anchor="middle">${text}</text>`);
+        }
       } else {
         const q = pts[pts.length - 1], a = pts[pts.length - 2];
         const u = { x: Math.sign(q.x - a.x), y: Math.sign(q.y - a.y) }, n = { x: -u.y, y: u.x };
@@ -306,6 +348,11 @@ export function createDiagramView(ctx) {
     const ov = [];
     for (const gl of guides) ov.push(`<line class="guide" x1="${gl.x1}" y1="${gl.y1}" x2="${gl.x2}" y2="${gl.y2}"/>`);
     if (lasso) ov.push(`<rect class="lasso" x="${lasso.x}" y="${lasso.y}" width="${lasso.w}" height="${lasso.h}"/>`);
+    if (linking) {
+      const a = rectOf(linking.from);
+      ov.push(`<path class="link-ghost${linking.ok === false ? ' bad' : ''}" d="M${a.x + a.w / 2} ${a.y + a.h / 2} L${linking.at.x} ${linking.at.y}"/>`);
+      if (linking.over) { const b = rectOf(linking.over); ov.push(`<rect class="link-target${linking.ok ? '' : ' bad'}" x="${b.x - 4}" y="${b.y - 4}" width="${b.w + 8}" height="${b.h + 8}" rx="13"/>`); }
+    }
     overlayG.innerHTML = ov.join('');
     lastRenderMs = performance.now() - t0;
   }
@@ -379,18 +426,19 @@ export function createDiagramView(ctx) {
     return base;
   }
 
-  /** @param {'partDef' | 'interfaceDef'} kind */
+  /** @param {string} kind */
   function addNew(kind) {
     const d = diagram();
     if (!d) return;
-    const owner = d.owner && model.canCreate(d.owner, kind) ? d.owner : model.layers().find((l) => l.layer === 'l')?.id;
+    const layerPkg = model.layers().find((l) => l.layer === (ELEMENTS[kind].defaultLayer || K.addLayer))?.id;
+    const owner = d.owner && model.canCreate(d.owner, kind) && model.layerOf(d.owner) === ELEMENTS[kind].defaultLayer ? d.owner : layerPkg;
     if (!owner) return;
     const { w, h: hh } = size();
     const c = toWorld(w / 2, hh / 2);
     let id = '';
     if (!ctx.edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
-      id = tx.create(kind, { owner });
-      const r = freeSpot(c.x - 90, c.y - 30, 180, 60);
+      id = tx.create(kind, { owner, props: ctx.newProps?.(kind, owner) });
+      const r = freeSpot(c.x - 90, c.y - 30, kind === 'requirement' ? 240 : 180, 60);
       tx.place(diagramId, { [id]: r });
     })) return;
     setSel(new Set([id]));
@@ -399,25 +447,23 @@ export function createDiagramView(ctx) {
     startRename(id);
   }
 
-  /** Show related blocks: types of parts, and generalizations either way. */
+  /** Show related elements: for blocks, types of parts and generalizations either way. */
   function addRelated() {
     const from = sel.size ? [...sel] : shownIds();
-    if (!from.length) { toast('Select a block first, or add one'); return; }
+    if (!from.length) { toast(`Select ${K.kind === 'req' ? 'an element' : 'a block'} first, or add one`); return; }
     /** @type {Record<string, Rect>} */
     const patch = {};
     const taken = new Set(shownIds());
     for (const id of from) {
       const r = rectOf(id);
-      /** @type {string[]} */
-      const below = [], above = [];
-      for (const k of model.children(id)) if (k.kind === 'part' && k.props.type && !taken.has(k.props.type) && canShow(model.get(k.props.type))) below.push(k.props.type);
-      for (const rel of model.relsFrom(id)) if (rel.kind === 'generalize' && rel.target && !taken.has(rel.target)) above.push(rel.target);
-      for (const rel of model.relsTo(id)) if (rel.kind === 'generalize' && rel.source && !taken.has(rel.source)) below.push(rel.source);
+      const rel = K.related(model, id);
+      const below = [...new Set(rel.below)].filter((x) => !taken.has(x) && canShow(model.get(x)));
+      const above = [...new Set(rel.above)].filter((x) => !taken.has(x) && canShow(model.get(x)));
       const place = (/** @type {string[]} */ list, /** @type {number} */ y) => {
         let x = r.x + r.w / 2 - (list.length * 220) / 2;
         for (const t of list) {
           if (taken.has(t)) continue;
-          const nat = naturalSize(nodeContent(model, /** @type {any} */ (model.get(t)), /** @type {any} */ (diagram()), ctx.notation()));
+          const nat = naturalSize(K.nodeContent(model, /** @type {any} */ (model.get(t)), /** @type {any} */ (diagram()), ctx.notation()));
           const spot = freeSpot(x, y, Math.max(180, nat.w), nat.h);
           patch[t] = spot; taken.add(t);
           x = spot.x + spot.w + 40;
@@ -427,7 +473,8 @@ export function createDiagramView(ctx) {
     }
     if (!Object.keys(patch).length) { toast('Everything related is already shown'); return; }
     commit('Add related', patch);
-    toast(`Added ${Object.keys(patch).length} related block${Object.keys(patch).length > 1 ? 's' : ''}`);
+    const nAdded = Object.keys(patch).length;
+    toast(`Added ${nAdded} related ${K.kind === 'req' ? 'element' : 'block'}${nAdded > 1 ? 's' : ''}`);
   }
 
   /** Auto-layout everything. */
@@ -436,8 +483,8 @@ export function createDiagramView(ctx) {
     if (!ids.length) return;
     // boxes grow to show their full text (never shrink: a user may have made one wider on purpose)
     const nodes = ids.map((id) => { const r = rectOf(id); return { id, w: Math.max(r.w, Math.ceil(content(id).min.w / GRID) * GRID), h: r.h }; });
-    const edges = edgesFor(model, new Set(ids)).map((e) => ({ from: e.from, to: e.to, kind: e.kind }));
-    const pos = layered(nodes, edges);
+    const edges = K.edgesFor(model, new Set(ids)).map((e) => ({ from: e.from, to: e.to, kind: e.kind }));
+    const pos = layered(nodes, /** @type {any} */ (edges));
     /** @type {Record<string, Rect>} */
     const patch = {};
     for (const n of nodes) { const p = pos.get(n.id); if (p) patch[n.id] = { x: p.x, y: p.y, w: n.w, h: layout()[n.id].h }; }
@@ -449,8 +496,7 @@ export function createDiagramView(ctx) {
   function viewMenu(anchor) {
     const d = diagram();
     if (!d) return;
-    const flags = /** @type {[string, string][]} */ ([['showParts', 'Parts compartment'], ['showValues', 'Values compartment'], ['showPorts', 'Ports compartment'], ['showRoles', 'Role names on lines'], ['snap', 'Snap to grid and guides']]);
-    popupMenu(anchor, flags.map(([k, label]) => ({
+    popupMenu(anchor, K.flags.map(([k, label]) => ({
       label, hint: d.props[k] !== false ? 'on' : 'off',
       run: () => ctx.edit(`${d.props[k] !== false ? 'Hide' : 'Show'} ${label.toLowerCase()}`, (tx) => tx.setProps(diagramId, { [k]: d.props[k] === false })),
     })), { title: 'This diagram shows' });
@@ -505,7 +551,8 @@ export function createDiagramView(ctx) {
    *  | { mode: 'resize', id: string, handle: string, start: { x: number, y: number }, orig: Rect }
    *  | { mode: 'lasso', start: { x: number, y: number }, additive: boolean, base: Set<string> }
    *  | { mode: 'pan', sx: number, sy: number, cx: number, cy: number }
-   *  | { mode: 'click-edge', el: string }}
+   *  | { mode: 'click-edge', el: string }
+   *  | { mode: 'link' }}
    */
   let drag = null;
 
@@ -518,7 +565,11 @@ export function createDiagramView(ctx) {
       drag = { mode: 'pan', sx: ev.clientX, sy: ev.clientY, cx: cam.x, cy: cam.y };
       stage.classList.add('panning');
     } else if (ev.button !== 0) return;
-    else if (t.closest('[data-handle]')) {
+    else if (t.closest('[data-link]')) {
+      const from = /** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-link]')).dataset.link);
+      linking = { from, at: w, over: null, ok: null, kinds: [] };
+      drag = { mode: 'link' };
+    } else if (t.closest('[data-handle]')) {
       const id = /** @type {string} */ (/** @type {HTMLElement} */ (t.closest('.node')).dataset.id);
       drag = { mode: 'resize', id, handle: /** @type {string} */ (/** @type {HTMLElement} */ (t.closest('[data-handle]')).dataset.handle), start: w, orig: rectOf(id) };
     } else if (t.closest('.node')) {
@@ -557,9 +608,29 @@ export function createDiagramView(ctx) {
       const o = drag.orig;
       let nw = o.w, nh = o.h;
       if (drag.handle.includes('e')) nw = Math.max(BOX.minW - 40, o.w + w.x - drag.start.x);
-      if (drag.handle.includes('s')) nh = Math.max(content(drag.id).min.h, o.h + w.y - drag.start.y);
-      if (snap) { nw = Math.round((o.x + nw) / GRID) * GRID - o.x; nh = Math.round((o.y + nh) / GRID) * GRID - o.y; }
-      override.set(drag.id, { x: o.x, y: o.y, w: Math.max(100, nw), h: Math.max(content(drag.id).min.h, nh) });
+      if (snap) { nw = Math.round((o.x + nw) / GRID) * GRID - o.x; }
+      nw = Math.max(100, nw);
+      if (drag.handle.includes('s')) nh = Math.max(minH(drag.id, nw), o.h + w.y - drag.start.y);
+      if (snap) nh = Math.round((o.y + nh) / GRID) * GRID - o.y;
+      override.set(drag.id, { x: o.x, y: o.y, w: nw, h: Math.max(minH(drag.id, nw), nh) });
+      invalidate();
+    } else if (drag.mode === 'link' && linking) {
+      linking.at = w;
+      const over = boxAt(w);
+      linking.over = over && over !== linking.from ? over : null;
+      linking.kinds = linking.over ? K.linkKinds(model, linking.from, linking.over) : [];
+      linking.ok = linking.over ? linking.kinds.length > 0 : null;
+      const n = ctx.notation();
+      const a = model.get(linking.from)?.name || '', b = linking.over ? model.get(linking.over)?.name || '' : '';
+      if (linking.over) {
+        tip.textContent = linking.ok
+          ? `${a} ${linking.kinds.map((k) => RELATIONSHIPS[k].verb[n]).join(' / ')} ${b}`
+          : alreadyLinked(linking.from, linking.over) ? `✕ ${a} and ${b} are already related` : `✕ ${a} cannot be related to ${b} here`;
+        tip.classList.toggle('bad', !linking.ok);
+        const sb = stage.getBoundingClientRect();
+        tip.style.left = `${ev.clientX - sb.left + 14}px`; tip.style.top = `${ev.clientY - sb.top + 16}px`;
+        tip.hidden = false;
+      } else tip.hidden = true;
       invalidate();
     } else if (drag.mode === 'lasso') {
       lasso = { x: Math.min(drag.start.x, w.x), y: Math.min(drag.start.y, w.y), w: Math.abs(w.x - drag.start.x), h: Math.abs(w.y - drag.start.y) };
@@ -597,9 +668,32 @@ export function createDiagramView(ctx) {
     } else if (d.mode === 'click-edge') {
       setSel(new Set(), false);
       ctx.select(d.el);
+    } else if (d.mode === 'link' && linking) {
+      const l = linking; linking = null; tip.hidden = true;
+      if (l.over && l.kinds.length) {
+        const n = ctx.notation();
+        const make = (/** @type {string} */ k) => { if (ctx.edit(`Add ${RELATIONSHIPS[k].names.sysml.toLowerCase()}`, (tx) => tx.link(k, l.from, /** @type {string} */ (l.over)))) toast(`${model.get(l.from)?.name} ${RELATIONSHIPS[k].verb[n]} ${model.get(/** @type {string} */ (l.over))?.name}`); };
+        if (l.kinds.length === 1) make(l.kinds[0]);
+        else {
+          const sb = stage.getBoundingClientRect();
+          const anchor = h('div', { class: 'menu-anchor', style: { left: `${ev.clientX - sb.left}px`, top: `${ev.clientY - sb.top}px` } });
+          stage.append(anchor);
+          popupMenu(anchor, l.kinds.map((k) => ({ label: `${RELATIONSHIPS[k].verb[n]}`, hint: RELATIONSHIPS[k].names[n], run: () => make(k) })), { title: `${model.get(l.from)?.name} …` });
+          setTimeout(() => anchor.remove(), 0);
+        }
+      }
     }
     invalidate();
   };
+
+  /** The topmost shown box under a world point. @param {{ x: number, y: number }} p */
+  function boxAt(p) {
+    let hit = null;
+    for (const [id, r] of allRects) if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) hit = id;
+    return hit;
+  }
+  /** @param {string} a @param {string} b */
+  const alreadyLinked = (a, b) => model.relsFrom(a).some((r) => r.target === b);
   stage.addEventListener('pointerup', endDrag);
   stage.addEventListener('pointercancel', endDrag);
 
@@ -653,7 +747,7 @@ export function createDiagramView(ctx) {
     if (!id) return;
     ev.preventDefault();
     const e = model.get(id);
-    if (!canShow(e)) { toast(`A block definition diagram shows blocks and interface blocks. ${e?.name || 'That'} is a ${kindName(e?.kind || '', ctx.notation())}.`, true); return; }
+    if (!canShow(e)) { toast(K.refuse(e, ctx.notation()), true); return; }
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
     const w = eventWorld(ev);
     const nat = content(id).min;

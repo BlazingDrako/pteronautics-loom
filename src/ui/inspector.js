@@ -2,6 +2,7 @@
 // With nothing selected it shows the project, display and integration settings.
 import { h, icon } from './dom.js';
 import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel, isDiagram } from '../model/metamodel.js';
+import { levelOf, requirementStatus, idPrefixFor, DEFAULT_PREFIX } from '../model/trace.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -25,7 +26,7 @@ const LAYER = Object.fromEntries(LAYERS.map((l) => [l.id, l]));
 export function createInspector(ctx) {
   const el = h('aside', { class: 'inspector', 'aria-label': 'Inspector' });
 
-  /** A text or long-text field that commits on blur or Enter. @param {string} label @param {string} value @param {(v: string) => void} commit @param {{ long?: boolean, placeholder?: string, mono?: boolean }} [o] */
+  /** A text or long-text field that commits on blur or Enter. @param {string} label @param {string} value @param {(v: string) => void} commit @param {{ long?: boolean, placeholder?: string, mono?: boolean, hint?: string }} [o] */
   function textField(label, value, commit, o = {}) {
     const input = o.long
       ? h('textarea', { class: 'field', rows: 3, placeholder: o.placeholder || '' }, value)
@@ -41,15 +42,33 @@ export function createInspector(ctx) {
       const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(240, input.scrollHeight + 2)}px`; };
       input.addEventListener('input', grow); requestAnimationFrame(grow);
     }
-    return h('label', { class: 'field-label' }, label, input);
+    return h('label', { class: 'field-label' }, label, input, o.hint ? h('small', {}, o.hint) : null);
+  }
+
+  /** Where a requirement stands: satisfied, verified, passed. @param {Element} e */
+  function reqStatus(e) {
+    const st = requirementStatus(ctx.model).get(e.id);
+    if (!st) return null;
+    const row = (/** @type {string} */ label, /** @type {boolean} */ ok, /** @type {string} */ yes, /** @type {string} */ no, bad = false) =>
+      h('div', { class: 'kv' }, h('span', {}, label), h('span', { class: bad ? 'bad' : ok ? 'good' : 'warn' }, ok ? yes : no));
+    return [
+      h('div', { class: 'sec' }, 'Traceability'),
+      row('Satisfied', st.satisfied, st.direct.satisfy.length ? '✓ Yes' : '✓ Through sub-requirements', 'Not yet'),
+      row('Verified', st.verified, st.direct.verify.length ? '✓ Yes' : '✓ Through sub-requirements', 'Not yet'),
+      st.verified ? row('Result', st.passed, '✓ Passed', st.failed ? '✕ Failed' : 'Not run yet', st.failed) : null,
+    ];
   }
 
   /** @param {Element} e */
   function propFields(e) {
     const n = ctx.settings.get().notation;
-    return Object.entries(ELEMENTS[e.kind].props).map(([key, p]) => {
+    return Object.entries(ELEMENTS[e.kind].props).filter(([, p]) => !p.hidden).map(([key, p]) => {
       const value = e.props[key];
       const set = (/** @type {any} */ v) => ctx.edit(`Change ${p.label.toLowerCase()}`, (tx) => tx.setProps(e.id, { [key]: v }));
+      if (key === 'idPrefix' && e.kind === 'package') {
+        const inherited = e.owner ? idPrefixFor(ctx.model, e.owner) : DEFAULT_PREFIX;
+        return textField(p.label, value ?? '', set, { placeholder: inherited, mono: true, hint: value ? 'New requirements in here are numbered with this prefix' : `Empty: uses ${inherited}` });
+      }
       if (p.type === 'text') return textField(p.label, value ?? '', set, { placeholder: p.placeholder, mono: key === 'reqId' || key === 'value' || key === 'unit' || key === 'multiplicity' });
       if (p.type === 'longtext') return textField(p.label, value ?? '', set, { long: true, placeholder: p.placeholder });
       if (p.type === 'end') {
@@ -64,7 +83,8 @@ export function createInspector(ctx) {
         return h('div', { class: 'opt' }, h('span', {}, p.label), cb);
       }
       if (p.type === 'enum') {
-        const sel = h('select', { class: 'field' }, p.options.map((o) => h('option', { value: o, selected: o === value ? true : undefined }, o)));
+        const label = (/** @type {string} */ o) => (key === 'level' && o === 'Auto' && e.kind === 'requirement' ? `Auto (${levelOf(ctx.model, e.id, new Set(), true)})` : o);
+        const sel = h('select', { class: 'field' }, p.options.map((o) => h('option', { value: o, selected: o === value ? true : undefined }, label(o))));
         sel.addEventListener('change', () => set(sel.value));
         return h('label', { class: 'field-label' }, p.label, sel);
       }
@@ -135,6 +155,7 @@ export function createInspector(ctx) {
       isDiagram(e.kind) ? h('button', { class: 'btn primary sm insp-open', type: 'button', onclick: () => ctx.open(e.id) }, icon('diagram'), 'Open diagram') : null,
       isDiagram(e.kind) ? h('div', { class: 'kv' }, h('span', {}, 'Shows'), h('span', { class: 'mono' }, `${Object.keys(e.layout?.nodes || {}).length} elements`)) : null,
       e.layer ? null : propFields(e),
+      e.kind === 'requirement' ? reqStatus(e) : null,
       kids.length ? [h('div', { class: 'sec' }, `Contains · ${kids.length}`), h('div', { class: 'chips' }, kids.map((k) => h('button', { class: 'chip', type: 'button', title: k.name, onclick: () => ctx.select(k.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[k.kind].abbr), h('span', { class: 'chip-name' }, k.name))))] : null,
       e.layer || isDiagram(e.kind) ? null : relationships(e),
       (() => {

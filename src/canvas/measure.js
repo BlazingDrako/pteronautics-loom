@@ -53,3 +53,39 @@ export function ellipsize(text, maxWidth, font) {
   }
   return text.slice(0, lo).trimEnd() + '…';
 }
+
+/**
+ * Break `text` into lines no wider than `maxWidth`, at spaces where possible (a word too long
+ * for one line is split). With `maxLines`, the last line ends in "…" when text is left over.
+ * @param {string} text @param {number} maxWidth @param {string} font @param {number} [maxLines]
+ * @returns {string[]}
+ */
+export function wrapLines(text, maxWidth, font, maxLines = Infinity) {
+  const words = String(text).replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  /** @type {string[]} */
+  const lines = [];
+  let line = '';
+  const push = (/** @type {string} */ l) => { lines.push(l); };
+  for (let i = 0; i < words.length; i++) {
+    let w = words[i];
+    const tryLine = line ? `${line} ${w}` : w;
+    if (textWidth(tryLine, font) <= maxWidth) { line = tryLine; continue; }
+    if (line) { push(line); line = ''; }
+    // a word wider than the line: split it
+    while (textWidth(w, font) > maxWidth && w.length > 1) {
+      let n = w.length - 1;
+      while (n > 1 && textWidth(w.slice(0, n), font) > maxWidth) n--;
+      push(w.slice(0, n)); w = w.slice(n);
+    }
+    line = w;
+    if (lines.length >= maxLines) break;
+  }
+  if (line) push(line);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = ellipsize(kept[maxLines - 1] + ' ' + lines.slice(maxLines).join(' '), maxWidth, font);
+    if (!kept[maxLines - 1].endsWith('…')) kept[maxLines - 1] = ellipsize(kept[maxLines - 1] + ' …', maxWidth, font);
+    return kept;
+  }
+  return lines;
+}

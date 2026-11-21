@@ -12,7 +12,19 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.4.0: internal block diagrams)
+## What works today (0.5.0: requirements and traceability)
+
+- **Systems V**: the project's home. The left arm runs from stakeholder needs through system requirements and architecture to physical design, the bottom is implementation, and the right arm climbs back up through component, integration and system verification to validation. Each stage shows its progress, measured from the model, and is paired with the stage that checks it. Click a stage for its evidence: what is done and what is missing, each one click from the element. Empty stages offer to add the first element.
+- **RFLP trace**: four lanes (Requirements, Functional, Logical, Physical) with a line for every trace relationship between lanes. Select a card to light up its **thread**: everything it realizes, up to the needs, and everything that realizes it, down to the physical parts. Coverage tiles (satisfied, verified, passed, functions allocated, logical realized, physical traced) filter to their gaps, and **Gaps only** shows everything missing a link.
+- **Requirements table**: every requirement in a package, one per row. **Edit cells in place** (Enter or double-click, or just start typing; Tab moves on), sort by any column (IDs sort naturally), filter by ID, name or text, **Gaps only**, choose and resize columns (ID, name, text, level, priority, status, method, satisfied by, verified by, refined by, derived from and into, verification result, package, rationale), add and remove links from a cell, **Renumber**, and export to **CSV**. Duplicate IDs are flagged. Rows are virtualized, so 10,000 requirements scroll smoothly.
+- **Dependency matrix**: any two sets of elements (requirements, test cases, functions, all/logical/physical blocks, parts, interface blocks) and any relationship. Presets for satisfy, verify, derive, refine and allocation. **Click a cell** (or arrow keys and Space) to add or remove a relationship; the hover tip says what it would do, or why it can't. Row and column totals flag empty ones, **Hide empty**, swap axes, CSV export. Virtualized both ways (2,000 × 10,000 is instant).
+- **Requirement diagrams**: requirements with their ID and wrapped text (never spilling out of the box), test cases, blocks and functions; containment (⊕) and dashed «deriveReqt», «satisfy», «verify», «refine», «copy» and «trace» arrows. **Drag from a box's link handle** to another box to relate them: Loom offers only the relationships that are allowed, and says why when none are.
+- **All requirement relationships**: satisfy, verify, derive, refine, copy and trace, plus containment. **Requirement levels** (need, system, subsystem, component), set by hand or worked out from derivation; **status** (draft, in review, approved, retired); test case **results** (not run, pass, fail).
+- **ID schemes**: set an ID prefix on a package (REQ-, SN-, PRF-…) and new requirements inside it are numbered automatically; **Renumber** tidies a package in one undoable step.
+- **Coverage rules**: a requirement is satisfied or verified directly or when all its sub-requirements (contained or derived) are; it has passed only when every test verifying it passed, and a failure shows all the way up. Retired requirements are left out. The inspector shows a requirement's traceability at a glance.
+- The Kestrel sample now has two stakeholder needs, four test cases with results (one failed), a requirement diagram, a requirements table, a satisfy matrix and a function allocation matrix.
+
+### 0.4.0: internal block diagrams
 
 - **Internal block diagrams** (ibd), one per block, showing its inside:
   - **Nested parts** as deep as you like (`propulsion : Propulsion System` containing `battery`, `esc`, `motor`). Moving a part moves everything inside it; containers grow to fit; the chevron **collapses** a part to a single box.
@@ -48,7 +60,7 @@ They are separate programs under the Pteronautics name. Loom stands on its own: 
 - **Notation**: SysML (Block, Part property…), SysML v2 (part def, part…) or Guided (Part type, Part…), switched live.
 - **Autosave** a moment after every change, plus the Pteronautics Works switch (off by default) and light and dark themes.
 
-**Not built yet:** the requirement, activity, state machine, sequence, parametric, use case and package diagrams, tables and matrices, the RFLP trace view, the Systems V home, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
+**Not built yet:** the activity, state machine, sequence, parametric, use case and package diagrams, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
 
 ## Run it
 
@@ -60,9 +72,9 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) and internal block diagram (connectors, connection rules, nesting, layout) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), and requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V) tests. Results are also left in `window.__results`.
 
-**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model, and panning, zooming, editing and moving blocks on a 2,000-block diagram.
+**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; and coverage, the requirements table and the dependency matrix on 10,000 requirements.
 
 ### Type checking (optional, for development)
 
@@ -101,6 +113,12 @@ src/canvas/populate.js       filling a new diagram
 src/canvas/ibd.js            what an internal block diagram shows, nested layout, connector routing
 src/canvas/ibdview.js        the internal block diagram canvas
 src/canvas/connect.js        connection rules: which ports may connect, and why not
+src/canvas/req.js            what a requirement diagram shows (requirement boxes, «stereotyped» arrows)
+src/model/trace.js           requirement IDs, levels, coverage and the RFLP thread
+src/views/vhome.js           the Systems V
+src/views/trace.js           the RFLP trace lanes
+src/views/table.js           the requirements table
+src/views/matrix.js          the dependency matrix
 src/model/paths.js           diagram layout keys (part paths and ports)
 src/ui/fuzzy.js              fuzzy matching and ranking
 src/ui/dom.js                DOM helpers, icons, brand, theme

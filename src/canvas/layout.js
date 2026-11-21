@@ -3,7 +3,7 @@
 // ordered to reduce crossings; unconnected blocks are placed in tidy rows underneath.
 
 /** @typedef {{ id: string, w: number, h: number }} LNode */
-/** @typedef {{ from: string, to: string, kind: 'composition' | 'generalization' }} LEdge */
+/** @typedef {{ from: string, to: string, kind: 'composition' | 'generalization' | 'containment' | 'dependency' }} LEdge */
 /** @typedef {{ gapX?: number, gapY?: number, x?: number, y?: number, maxRowWidth?: number }} LOpts */
 
 /**
@@ -21,7 +21,7 @@ export function layered(nodes, edges, opts = {}) {
   /** @type {Map<string, Set<string>>} */
   const parents = new Map(nodes.map((n) => [n.id, new Set()]));
   for (const e of edges) {
-    const [p, c] = e.kind === 'composition' ? [e.from, e.to] : [e.to, e.from];
+    const [p, c] = e.kind === 'composition' || e.kind === 'containment' ? [e.from, e.to] : [e.to, e.from];
     if (p === c || !byId.has(p) || !byId.has(c)) continue;
     kids.get(p)?.add(c); parents.get(c)?.add(p);
   }

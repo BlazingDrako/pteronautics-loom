@@ -77,6 +77,12 @@ const ICONS = {
   layout: '<rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="8.5" y="16" width="7" height="5" rx="1"/><path d="M6.5 8 V12 H17.5 V8 M12 12 V16"/>',
   eye: '<path d="M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z"/><circle cx="12" cy="12" r="3"/>',
   minus: '<path d="M5 12 H19"/>',
+  download: '<path d="M12 4 V16 M7 11 L12 16 L17 11 M4 20 H20"/>',
+  filter: '<path d="M4 5 H20 L14 12.5 V19 L10 17 V12.5 Z"/>',
+  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4 V20 M15 4 V20"/>',
+  hash: '<path d="M5 9 H19 M5 15 H19 M10 4 L8 20 M16 4 L14 20"/>',
+  check: '<path d="M5 12.5 L10 17 L19 7"/>',
+  req: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8 H16 M8 12 H16 M8 16 H12"/>',
   fit: '<path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/>',
   command: '<path d="M9 6 a3 3 0 1 0-3 3 H18 a3 3 0 1 0-3-3 V18 a3 3 0 1 0 3-3 H6 a3 3 0 1 0 3 3 Z"/>',
 };

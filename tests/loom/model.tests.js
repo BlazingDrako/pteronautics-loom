@@ -93,7 +93,7 @@ export function modelTests(log) {
   // ---------- the Kestrel sample ----------
   const k = buildKestrel(createModel());
   log('The Kestrel sample builds without errors', k.root().name === 'Kestrel UAS' && k.elementCount() > 30, k.elementCount());
-  log('The sample has relationships in every direction', k.byKind('satisfy').length >= 3 && k.byKind('allocate').length >= 6 && k.byKind('verify').length === 1);
+  log('The sample has relationships in every direction', k.byKind('satisfy').length >= 3 && k.byKind('allocate').length >= 6 && k.byKind('verify').length >= 4 && k.byKind('derive').length >= 4);
   log('The sample starts with no undo history', !k.canUndo());
   log('Every sample element sits in an RFLP layer', k.all().filter((e) => e.owner && !e.layer && !RELATIONSHIPS[e.kind]).every((e) => !!k.layerOf(e.id)));
   /** @type {(id: string) => string} */

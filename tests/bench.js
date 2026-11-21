@@ -4,6 +4,9 @@ import { snapshot, restore } from '../src/model/serialize.js';
 import { createDiagramView } from '../src/canvas/view.js';
 import { edgesFor } from '../src/canvas/bdd.js';
 import { routeAll } from '../src/canvas/route.js';
+import { coverage } from '../src/model/trace.js';
+import { createTableView } from '../src/views/table.js';
+import { createMatrixView } from '../src/views/matrix.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -108,4 +111,69 @@ export async function runBench(report) {
   report({ name: 'Re-route after moving a block with 40 connectors (median)', ms: median(routes), budget: 16 });
 
   view.dispose(); host.remove();
+
+  // ---------- 4. requirements and traceability at scale ----------
+  const rm = createModel();
+  const [RR, , RL] = rm.layers().map((l) => l.id);
+  /** @type {string} */
+  let tid = '', mid = '';
+  const tTrace = time(() => rm.transact('Requirements', (tx) => {
+    /** @type {string[]} */
+    const blocks = [];
+    for (let i = 0; i < 2000; i++) blocks.push(tx.create('partDef', { owner: RL, name: `Block ${i}` }));
+    /** @type {string[]} */
+    let prev = [];
+    for (let p = 0; p < 100; p++) {
+      const pkg = tx.create('package', { owner: RR, name: `Spec ${p}` });
+      const test = tx.create('testCase', { owner: pkg, name: `Test ${p}`, props: { result: p % 7 ? 'Pass' : 'Fail' } });
+      /** @type {string[]} */
+      const here = [];
+      for (let i = 0; i < 100; i++) {
+        const r = tx.create('requirement', { owner: pkg, name: `Requirement ${p}.${i}`, props: { reqId: `REQ-${String(p * 100 + i).padStart(5, '0')}`, text: 'The system shall do something measurable within a stated tolerance.' } });
+        here.push(r);
+        if (i % 10 < 7) tx.link('satisfy', blocks[(p * 100 + i) % 2000], r);
+        if (i % 3 === 0) tx.link('verify', test, r);
+        if (prev.length && i % 2 === 0) tx.link('derive', r, prev[i % prev.length]);
+      }
+      prev = here;
+    }
+    tid = tx.create('table', { owner: RR, name: 'All' });
+    mid = tx.create('matrix', { owner: RR, name: 'Satisfy', props: { rel: 'satisfy', rows: 'partDef', cols: 'requirement' } });
+  }));
+  report({ name: `Build 10,000 requirements with ${(rm.count() - rm.elementCount()).toLocaleString()} trace links`, ms: tTrace, budget: 2000 });
+  /** @type {any} */
+  let cov = null;
+  const tCov = time(() => { cov = coverage(rm); });
+  report({ name: `Coverage of 10,000 requirements (${cov.satisfied.done.toLocaleString()} satisfied)`, ms: tCov, budget: 100, note: 'recomputed when the Systems V or RFLP trace repaints' });
+
+  const thost = document.createElement('div');
+  Object.assign(thost.style, { position: 'fixed', left: '0', top: '0', width: '1280px', height: '800px', display: 'flex', flexDirection: 'column', opacity: '0', pointerEvents: 'none' });
+  document.body.append(thost);
+  const base = { model: rm, notation: () => /** @type {const} */ ('sysml'), selected: () => null, select: () => {}, edit: (/** @type {string} */ l, /** @type {any} */ fn) => { rm.transact(l, fn); return true; } };
+  const table = createTableView({ ...base, diagramId: tid });
+  thost.append(table.el);
+  const tTable = time(() => table.render());
+  report({ name: `Requirements table: first paint of ${table.rows().length.toLocaleString()} rows`, ms: tTable, budget: 200, note: 'rows are virtualized: only the visible ones are built' });
+  const sc = /** @type {HTMLElement} */ (table.el.querySelector('.tscroll'));
+  /** @type {number[]} */
+  const tScroll = [];
+  for (let i = 0; i < 30; i++) { sc.scrollTop = i * 4000; tScroll.push(time(() => table.render())); }
+  report({ name: 'Requirements table: scroll (median frame)', ms: median(tScroll), budget: 16 });
+  const someReq = rm.byKind('requirement')[5000];
+  /** @type {number[]} */
+  const tEditT = [];
+  for (let i = 0; i < 5; i++) tEditT.push(time(() => { rm.transact('Edit', (tx) => tx.setProps(someReq.id, { text: `Changed ${i}` })); table.invalidate(); table.render(); }));
+  report({ name: 'Requirements table: edit a cell → repaint (median)', ms: median(tEditT), budget: 100, note: 'recomputes every requirement\'s status; a worker comes with validation (M8)' });
+  table.dispose(); table.el.remove();
+
+  const mx = createMatrixView({ ...base, diagramId: mid });
+  thost.append(mx.el);
+  const tMx = time(() => mx.render());
+  report({ name: `Dependency matrix: first paint, ${mx.data().rows.length.toLocaleString()} × ${mx.data().cols.length.toLocaleString()}`, ms: tMx, budget: 200, note: 'cells are virtualized in both directions' });
+  const ms = /** @type {HTMLElement} */ (mx.el.querySelector('.mscroll'));
+  /** @type {number[]} */
+  const mScroll = [];
+  for (let i = 0; i < 30; i++) { ms.scrollTop = i * 1500; ms.scrollLeft = i * 6000; mScroll.push(time(() => mx.render())); }
+  report({ name: 'Dependency matrix: scroll (median frame)', ms: median(mScroll), budget: 16 });
+  mx.dispose(); thost.remove();
 }

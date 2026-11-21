@@ -78,6 +78,13 @@ for (const kind of Object.keys(ELEMENTS).filter((k) => !ELEMENTS[k].diagram)) {
 // ---------- diagrams ----------
 commands.add({ id: 'diagram.new.bdd', group: 'Diagram', get title() { return `New ${kindName('bdd', notation())}`; }, keywords: ['bdd', 'structure', 'block', 'create'], enabled: () => !!ws?.canNew('bdd'), run: () => ws?.newDiagram('bdd') });
 commands.add({ id: 'diagram.new.ibd', group: 'Diagram', get title() { return `New ${kindName('ibd', notation())} for the selected block`; }, keywords: ['ibd', 'internal', 'ports', 'connectors', 'create'], enabled: () => !!ws?.canNew('ibd'), run: () => ws?.newDiagram('ibd') });
+commands.add({ id: 'diagram.new.req', group: 'Diagram', get title() { return `New ${kindName('req', notation())}`; }, keywords: ['req', 'requirements', 'satisfy', 'verify', 'derive', 'create'], enabled: () => !!ws?.canNew('req'), run: () => ws?.newDiagram('req') });
+commands.add({ id: 'view.table.new', group: 'Views', get title() { return `New ${kindName('table', notation())}`; }, keywords: ['table', 'grid', 'spreadsheet', 'requirements', 'create'], enabled: () => !!ws?.canNew('table'), run: () => ws?.newDiagram('table') });
+commands.add({ id: 'view.matrix.new', group: 'Views', get title() { return `New ${kindName('matrix', notation())}`; }, keywords: ['matrix', 'dependency', 'grid', 'allocation', 'satisfy', 'create'], enabled: () => !!ws?.canNew('matrix'), run: () => ws?.newDiagram('matrix') });
+commands.add({ id: 'view.home', title: 'Open the Systems V', group: 'Views', keywords: ['vee', 'home', 'progress', 'lifecycle', 'verification'], enabled: inProject, run: () => ws?.openDiagram('v:home') });
+commands.add({ id: 'view.trace', title: 'Open the RFLP trace', group: 'Views', keywords: ['traceability', 'coverage', 'thread', 'gaps', 'lanes'], enabled: inProject, run: () => ws?.openDiagram('v:trace') });
+commands.add({ id: 'view.table', title: 'Open the requirements table', group: 'Views', keywords: ['requirements', 'list', 'grid', 'csv', 'excel'], enabled: inProject, run: () => ws?.openOrCreate('table') });
+commands.add({ id: 'view.matrix', title: 'Open the satisfy matrix', group: 'Views', keywords: ['matrix', 'dependency', 'satisfy', 'coverage'], enabled: inProject, run: () => ws?.openOrCreate('matrix') });
 const inDiagram = () => !!ws?.activeView();
 commands.add({ id: 'diagram.fit', title: 'Fit the diagram to the window', group: 'Diagram', keywords: ['zoom', 'all'], enabled: inDiagram, run: () => ws?.activeView()?.fit() });
 commands.add({ id: 'diagram.zoomIn', title: 'Zoom in', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomIn() });

@@ -19,9 +19,9 @@ export function ago(iso) {
   return d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : new Date(t).toLocaleDateString();
 }
 
-/** Download text as a file. @param {string} filename @param {string} text */
-export function download(filename, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+/** Download text as a file. @param {string} filename @param {string} text @param {string} [type] */
+export function download(filename, text, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
   const a = h('a', { href: url, download: filename });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);

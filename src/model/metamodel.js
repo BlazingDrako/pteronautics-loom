@@ -8,10 +8,10 @@
 /** @typedef {'sysml' | 'v2' | 'guided'} Notation */
 /** @typedef {'r' | 'f' | 'l' | 'p'} Layer */
 /**
- * @typedef {{ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
+ * @typedef {({ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
  *   | { type: 'enum', label: string, options: string[], default: string }
  *   | { type: 'ref', label: string, kinds: string[], default?: null }
- *   | { type: 'end', label: string, default?: null }} PropSpec
+ *   | { type: 'end', label: string, default?: null }) & { hidden?: true }} PropSpec  hidden: kept by a view's own controls, not shown in the inspector
  * @typedef {{ path: string[], port: string | null }} End  a connector end: parts from the owning block, then an optional port
  */
 /**
@@ -44,8 +44,12 @@ const DOC = /** @type {PropSpec} */ ({ type: 'longtext', label: 'Description', d
 export const ELEMENTS = {
   package: {
     names: { sysml: 'Package', v2: 'package', guided: 'Folder' }, abbr: 'pkg',
-    owners: ['package'], props: { doc: DOC },
-    help: 'Groups model elements. Every element lives in exactly one package or element.',
+    owners: ['package'],
+    props: {
+      idPrefix: { type: 'text', label: 'Requirement ID prefix', default: '', placeholder: 'REQ-' },
+      doc: DOC,
+    },
+    help: 'Groups model elements. Every element lives in exactly one package or element. A requirement ID prefix here numbers the requirements created inside it.',
   },
   requirement: {
     names: { sysml: 'Requirement', v2: 'requirement', guided: 'Requirement' }, abbr: 'req', defaultLayer: 'r',
@@ -53,7 +57,9 @@ export const ELEMENTS = {
     props: {
       reqId: { type: 'text', label: 'ID', default: '', placeholder: 'REQ-001' },
       text: { type: 'longtext', label: 'Text', default: '', placeholder: 'The system shall…' },
+      level: { type: 'enum', label: 'Level', options: ['Auto', 'Need', 'System', 'Subsystem', 'Component'], default: 'Auto' },
       priority: { type: 'enum', label: 'Priority', options: ['—', 'Must', 'Should', 'Could'], default: '—' },
+      status: { type: 'enum', label: 'Status', options: ['Draft', 'In review', 'Approved', 'Retired'], default: 'Draft' },
       method: { type: 'enum', label: 'Verification method', options: ['—', 'Analysis', 'Test', 'Inspection', 'Demonstration'], default: '—' },
       doc: { ...DOC, label: 'Rationale', placeholder: 'Why is this needed?' },
     },
@@ -62,7 +68,11 @@ export const ELEMENTS = {
   testCase: {
     names: { sysml: 'Test case', v2: 'verification def', guided: 'Test' }, abbr: 'test', defaultLayer: 'r',
     owners: ['package'],
-    props: { method: { type: 'enum', label: 'Method', options: ['Analysis', 'Test', 'Inspection', 'Demonstration'], default: 'Test' }, doc: DOC },
+    props: {
+      method: { type: 'enum', label: 'Method', options: ['Analysis', 'Test', 'Inspection', 'Demonstration'], default: 'Test' },
+      result: { type: 'enum', label: 'Result', options: ['Not run', 'Pass', 'Fail'], default: 'Not run' },
+      doc: DOC,
+    },
     help: 'A test, analysis, inspection or demonstration that verifies requirements.',
   },
   action: {
@@ -149,6 +159,40 @@ export const ELEMENTS = {
     },
     help: 'Shows the inside of one block: its parts (nested as deep as you like), their ports, and the connectors and item flows between them.',
   },
+  req: {
+    names: { sysml: 'Requirement diagram', v2: 'requirement view', guided: 'Requirements diagram' }, abbr: 'req', defaultLayer: 'r', diagram: true,
+    owners: ['package'],
+    props: {
+      showId: { type: 'bool', label: 'Requirement IDs', default: true },
+      showText: { type: 'bool', label: 'Requirement text', default: true },
+      showRoles: { type: 'bool', label: 'Relationship names on lines', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows requirements, how they break down (containment and derive), and what satisfies, refines and verifies them. Drag from a box\'s link handle to another box to relate them.',
+  },
+  table: {
+    names: { sysml: 'Requirements table', v2: 'requirements grid view', guided: 'Requirements list' }, abbr: 'tbl', defaultLayer: 'r', diagram: true,
+    owners: ['package'],
+    props: {
+      columns: { type: 'text', label: 'Columns', default: '', hidden: true },
+      sort: { type: 'text', label: 'Sort', default: '', hidden: true },
+      doc: DOC,
+    },
+    help: 'Every requirement inside this table\'s package, one per row, with what satisfies and verifies it. Edit cells in place, sort, filter, choose columns and export to CSV.',
+  },
+  matrix: {
+    names: { sysml: 'Dependency matrix', v2: 'dependency grid view', guided: 'Link grid' }, abbr: 'mtx', defaultLayer: 'r', diagram: true,
+    owners: ['package'],
+    props: {
+      rel: { type: 'text', label: 'Relationship', default: 'satisfy', hidden: true },
+      rows: { type: 'text', label: 'Rows', default: 'partDef', hidden: true },
+      cols: { type: 'text', label: 'Columns', default: 'requirement', hidden: true },
+      hideEmpty: { type: 'bool', label: 'Hide empty rows and columns', default: false },
+      doc: DOC,
+    },
+    help: 'A grid of two sets of elements with a mark wherever a relationship joins them. Click a cell to add or remove the relationship.',
+  },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
     owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef'],
@@ -189,6 +233,11 @@ export const RELATIONSHIPS = {
     names: { sysml: 'Generalization', v2: 'specializes', guided: 'Kind of' }, verb: { sysml: 'specializes', v2: 'specializes', guided: 'is a kind of' }, inverse: { sysml: 'specialized by', v2: 'specialized by', guided: 'has kind' }, rel: true,
     sources: ['partDef', 'interfaceDef', 'requirement'], targets: ['partDef', 'interfaceDef', 'requirement'],
     help: 'One type is a more specific kind of another.',
+  },
+  copy: {
+    names: { sysml: 'Copy', v2: 'copy', guided: 'Copy of' }, verb: { sysml: 'copies', v2: 'copies', guided: 'is a copy of' }, inverse: { sysml: 'copied by', v2: 'copied by', guided: 'copied to' }, rel: true,
+    sources: ['requirement'], targets: ['requirement'],
+    help: 'A requirement whose text is reused, unchanged, from another (for example from a supplier specification).',
   },
   trace: {
     names: { sysml: 'Trace', v2: 'dependency', guided: 'Related to' }, verb: { sysml: 'traces to', v2: 'depends on', guided: 'is related to' }, inverse: { sysml: 'traced from', v2: 'depended on by', guided: 'is related to' }, rel: true,

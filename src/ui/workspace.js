@@ -10,19 +10,31 @@ import { populate, startingBlocks } from '../canvas/populate.js';
 import { createIbdView } from '../canvas/ibdview.js';
 import { packIbd } from '../canvas/ibd.js';
 import { ModelError } from '../model/model.js';
+import { createTableView } from '../views/table.js';
+import { createMatrixView } from '../views/matrix.js';
+import { createTraceView } from '../views/trace.js';
+import { createVHomeView } from '../views/vhome.js';
+import { nextReqId } from '../model/trace.js';
+import { populateReq } from '../canvas/populate.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
 
 /** Views listed in the sidebar; `ready: false` shows a "soon" tag. */
 const VIEWS = [
+  { id: 'v:home', name: 'Systems V', icon: 'vee', ready: true },
+  { id: 'v:trace', name: 'RFLP trace', icon: 'trace', ready: true },
   { id: 'overview', name: 'Model overview', icon: 'grid', ready: true },
   { id: 'diagrams', name: 'Diagrams', icon: 'diagram', ready: true },
-  { id: 'home', name: 'Systems V', icon: 'vee', ready: false },
-  { id: 'trace', name: 'RFLP trace', icon: 'trace', ready: false },
-  { id: 'tables', name: 'Tables & matrices', icon: 'table', ready: false },
+  { id: 'tables', name: 'Tables & matrices', icon: 'table', ready: true },
   { id: 'library', name: 'SysML library', icon: 'book', ready: false },
 ];
+/** Project views that are not model elements. */
+const PROJECT_VIEWS = /** @type {Record<string, { name: string, icon: string }>} */ ({ 'v:home': { name: 'Systems V', icon: 'vee' }, 'v:trace': { name: 'RFLP trace', icon: 'trace' } });
+/** Tabs for kinds of view. */
+const KIND_ICON = /** @type {Record<string, string>} */ ({ table: 'table', matrix: 'matrix', req: 'req' });
+/** Kinds the "Tables & matrices" menu lists. */
+const GRID_KINDS = ['table', 'matrix'];
 
 /**
  * @param {HTMLElement} root
@@ -46,13 +58,17 @@ export function mountWorkspace(root, ctx) {
   let pending = false;
 
   const notation = () => settings.get().notation;
-  /** Open diagram tabs, in order. @type {string[]} */
-  const tabs = [];
-  /** 'overview' or a diagram id. */
-  let active = 'overview';
-  /** @type {Map<string, import('../canvas/view.js').DiagramView>} */
+  /** Open tabs after the overview, in order: views ('v:…') and diagram ids. @type {string[]} */
+  const tabs = ['v:home'];
+  /** 'overview', a project view ('v:…') or a diagram id. */
+  let active = 'v:home';
+  /** @type {Map<string, any>} */
   const views = new Map();
-  const activeView = () => (active === 'overview' ? null : views.get(active) || null);
+  /** The open view, if any. */
+  const currentView = () => (active === 'overview' ? null : views.get(active) || null);
+  /** The open diagram canvas, if the open view is one (diagram commands act on it). */
+  const activeView = () => { const v = currentView(); return v && v.canvas ? /** @type {import('../canvas/view.js').DiagramView} */ (v) : null; };
+  const isView = (/** @type {string} */ id) => id in PROJECT_VIEWS;
 
   /** Run an edit; show model errors as a message instead of throwing. @param {string} label @param {(tx: any) => void} fn */
   function edit(label, fn) {
@@ -66,7 +82,7 @@ export function mountWorkspace(root, ctx) {
     if (id === selected) return;
     selected = id;
     tree.render(); inspector.render(); paintStage();
-    activeView()?.syncSelection(id);
+    currentView()?.syncSelection(id);
   }
 
   const tree = createTree({
@@ -82,15 +98,23 @@ export function mountWorkspace(root, ctx) {
   const inspector = createInspector({ model, settings, commands, selected: () => selected, select, edit, meta: () => meta, open: (id) => openDiagram(id) });
 
   // ---------- diagrams ----------
-  /** @param {string} id */
+  /** Open a diagram, table or matrix, or a project view ('v:home', 'v:trace'). @param {string} id */
   function openDiagram(id) {
-    const d = model.get(id);
-    if (!d || !isDiagram(d.kind)) return;
+    if (!isView(id)) {
+      const d = model.get(id);
+      if (!d || !isDiagram(d.kind)) return;
+    }
     if (!tabs.includes(id)) tabs.push(id);
     active = id;
     paintMain();
-    activeView()?.syncSelection(selected);
-    activeView()?.focus();
+    currentView()?.syncSelection(selected);
+    currentView()?.focus();
+  }
+  /** Open the first view of a kind, or make one in the Requirements layer. @param {string} kind */
+  function openOrCreate(kind) {
+    const have = model.byKind(kind);
+    const pick = kind === 'matrix' ? have.find((x) => x.props.rel === 'satisfy') || have[0] : have[0];
+    if (pick) openDiagram(pick.id); else newDiagram(kind, model.layers().find((l) => l.layer === 'r')?.id);
   }
   /** @param {string} id */
   function closeTab(id) {
@@ -101,12 +125,20 @@ export function mountWorkspace(root, ctx) {
     if (active === id) active = tabs[Math.min(i, tabs.length - 1)] || 'overview';
     paintMain();
   }
+  /** Props a new element starts with: requirements get the next ID for their package. @param {string} kind @param {string} owner */
+  const newProps = (kind, owner) => (kind === 'requirement' ? { reqId: nextReqId(model, owner) } : undefined);
   /** @param {string} id */
   function viewFor(id) {
     let v = views.get(id);
     if (!v) {
-      const make = model.get(id)?.kind === 'ibd' ? createIbdView : createDiagramView;
-      v = make({ model, diagramId: id, notation, selected: () => selected, select, edit });
+      const base = { model, diagramId: id, notation, selected: () => selected, select, edit, newProps };
+      const kind = model.get(id)?.kind;
+      if (id === 'v:home') v = createVHomeView({ ...base, create: (k, owner, props) => create(k, owner, props), openTrace: () => openDiagram('v:trace'), openTable: () => openOrCreate('table'), openMatrix: () => openOrCreate('matrix') });
+      else if (id === 'v:trace') v = createTraceView(base);
+      else if (kind === 'table') v = createTableView(base);
+      else if (kind === 'matrix') v = createMatrixView(base);
+      else if (kind === 'ibd') v = Object.assign(createIbdView(base), { canvas: true });
+      else v = Object.assign(createDiagramView(base), { canvas: true });
       views.set(id, v);
     }
     return v;
@@ -117,10 +149,16 @@ export function mountWorkspace(root, ctx) {
     if (!owner) return;
     const o = /** @type {import('../model/model.js').Element} */ (model.get(owner));
     let id = '';
+    const names = /** @type {Record<string, string>} */ ({ req: `${o.name} requirements`, table: `${o.name} table`, matrix: 'Satisfy matrix' });
     if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
       if (kind === 'ibd') {
         id = tx.create(kind, { owner, name: `${o.name} internals` });
         tx.place(id, packIbd(model, owner, { notation: notation() }));
+      } else if (kind === 'req') {
+        id = tx.create(kind, { owner, name: names.req });
+        populateReq(model, tx, id, notation());
+      } else if (kind === 'table' || kind === 'matrix') {
+        id = tx.create(kind, { owner, name: names[kind] });
       } else {
         id = tx.create(kind, { owner, name: `${o.name} structure` });
         populate(model, tx, id, startingBlocks(model, owner), notation());
@@ -133,21 +171,32 @@ export function mountWorkspace(root, ctx) {
   }
   /** @param {HTMLElement} anchor */
   function diagramsMenu(anchor) {
-    const all = DIAGRAM_KINDS.flatMap((k) => model.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
+    const all = DIAGRAM_KINDS.filter((k) => !GRID_KINDS.includes(k)).flatMap((k) => model.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
     popupMenu(anchor, [
       ...all.map((d) => ({ label: d.name, hint: ELEMENTS[d.kind].abbr, run: () => openDiagram(d.id) })),
       ...(all.length ? /** @type {const} */ (['sep']) : []),
       { label: `New ${kindName('bdd', notation())}`, hint: '+', run: () => newDiagram('bdd') },
       { label: `New ${kindName('ibd', notation())}${ownerFor('ibd') ? '' : ' (select a block first)'}`, hint: '+', disabled: !ownerFor('ibd'), run: () => newDiagram('ibd') },
+      { label: `New ${kindName('req', notation())}`, hint: '+', run: () => newDiagram('req') },
     ], { title: all.length ? 'Open a diagram' : 'No diagrams yet' });
   }
+  /** @param {HTMLElement} anchor */
+  function gridsMenu(anchor) {
+    const all = GRID_KINDS.flatMap((k) => model.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
+    popupMenu(anchor, [
+      ...all.map((d) => ({ label: d.name, hint: ELEMENTS[d.kind].abbr, run: () => openDiagram(d.id) })),
+      ...(all.length ? /** @type {const} */ (['sep']) : []),
+      { label: `New ${kindName('table', notation())}`, hint: '+', run: () => newDiagram('table') },
+      { label: `New ${kindName('matrix', notation())}`, hint: '+', run: () => newDiagram('matrix') },
+    ], { title: all.length ? 'Open a table or matrix' : 'No tables or matrices yet' });
+  }
 
-  /** Create an element and start renaming it. @param {string} kind @param {string} owner */
-  function create(kind, owner) {
+  /** Create an element and start renaming it. @param {string} kind @param {string} owner @param {Record<string, any>} [props] */
+  function create(kind, owner, props) {
     if (isDiagram(kind)) { newDiagram(kind, owner); return; }
     /** @type {string} */
     let id = '';
-    if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => { id = tx.create(kind, { owner }); })) return;
+    if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => { id = tx.create(kind, { owner, props: { ...newProps(kind, owner), ...props } }); })) return;
     expanded.add(owner);
     selected = id;
     tree.render(); inspector.render(); paintStage();
@@ -197,12 +246,12 @@ export function mountWorkspace(root, ctx) {
     pending = true; saveState = 'saving';
     clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400);
     if (selected && !model.get(selected)) selected = null;
-    for (const t of [...tabs]) if (!model.get(t)) closeTab(t);
+    for (const t of [...tabs]) if (!isView(t) && !model.get(t)) closeTab(t);
     tree.render(); inspector.render(); paintStage(); paintStatus(); paintTop(); paintTabs();
-    activeView()?.invalidate();
+    currentView()?.invalidate();
     if (ev.cause !== 'do') toast(`${ev.cause === 'undo' ? 'Undid' : 'Redid'}: ${ev.label}`);
   });
-  const unsubSettings = settings.subscribe(() => { tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); activeView()?.invalidate(); });
+  const unsubSettings = settings.subscribe(() => { tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
   const onUnload = () => { if (pending) flush(); };
   addEventListener('beforeunload', onUnload);
 
@@ -220,8 +269,13 @@ export function mountWorkspace(root, ctx) {
     tree.el,
     h('div', { class: 'nav-group' }, 'Views'),
     VIEWS.map((v) => h('button', {
-      class: 'nav-item' + (v.ready ? '' : ' planned'), type: 'button', 'aria-disabled': v.ready ? undefined : 'true', 'aria-haspopup': v.id === 'diagrams' ? 'menu' : undefined,
-      onclick: (/** @type {Event} */ e) => { if (v.id === 'overview') { active = 'overview'; paintMain(); } else if (v.id === 'diagrams') diagramsMenu(/** @type {HTMLElement} */ (e.currentTarget)); },
+      class: 'nav-item' + (v.ready ? '' : ' planned'), type: 'button', 'aria-disabled': v.ready ? undefined : 'true', 'aria-haspopup': v.id === 'diagrams' || v.id === 'tables' ? 'menu' : undefined,
+      onclick: (/** @type {Event} */ e) => {
+        if (v.id === 'overview') { active = 'overview'; paintMain(); }
+        else if (v.id === 'diagrams') diagramsMenu(/** @type {HTMLElement} */ (e.currentTarget));
+        else if (v.id === 'tables') gridsMenu(/** @type {HTMLElement} */ (e.currentTarget));
+        else if (isView(v.id)) openDiagram(v.id);
+      },
     }, icon(v.icon), h('span', { class: 'nav-label' }, v.name), v.ready ? null : h('span', { class: 'soon' }, 'soon'))),
     h('div', { class: 'sidebar-foot' },
       h('a', { class: 'nav-item', href: '#/' }, icon('home'), h('span', { class: 'nav-label' }, 'All projects')),
@@ -288,13 +342,14 @@ export function mountWorkspace(root, ctx) {
     const tab = (/** @type {string} */ id, /** @type {string} */ label, /** @type {string} */ ic, /** @type {boolean} */ closable) => {
       const on = active === id;
       return h('div', { class: 'tab' + (on ? ' on' : ''), role: 'presentation' },
-        h('button', { class: 'tab-btn', type: 'button', role: 'tab', 'aria-selected': String(on), title: label, onclick: () => { active = id; paintMain(); if (id !== 'overview') activeView()?.focus(); } },
+        h('button', { class: 'tab-btn', type: 'button', role: 'tab', 'aria-selected': String(on), title: label, onclick: () => { active = id; paintMain(); if (id !== 'overview') currentView()?.focus(); } },
           icon(ic), h('span', { class: 'tab-label' }, label)),
         closable ? h('button', { class: 'tab-x', type: 'button', 'aria-label': `Close ${label}`, onclick: () => closeTab(id) }, icon('x')) : null);
     };
     tabbar.replaceChildren(
+      tab('v:home', PROJECT_VIEWS['v:home'].name, PROJECT_VIEWS['v:home'].icon, false),
       tab('overview', 'Model overview', 'grid', false),
-      ...tabs.map((id) => tab(id, model.get(id)?.name || 'Diagram', 'diagram', true)),
+      ...tabs.filter((id) => id !== 'v:home').map((id) => isView(id) ? tab(id, PROJECT_VIEWS[id].name, PROJECT_VIEWS[id].icon, id !== 'v:home') : tab(id, model.get(id)?.name || 'Diagram', KIND_ICON[model.get(id)?.kind || ''] || 'diagram', true)),
       h('button', { class: 'icon-btn sm tab-new', type: 'button', 'aria-label': 'Open or create a diagram', title: 'Open or create a diagram', onclick: (/** @type {Event} */ e) => diagramsMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus')));
   }
   function paintMain() {
@@ -327,7 +382,11 @@ export function mountWorkspace(root, ctx) {
     searchItems: () => model.all().filter((e) => !isRel(e.kind) && e.owner).map((e) => ({ id: e.id, name: e.name, kind: kindName(e.kind, notation()) })),
     newDiagram,
     openDiagram,
+    openOrCreate,
     activeView,
+    currentView,
+    /** The package a new view of `kind` goes in. @param {string} kind */
+    ownerFor,
     dispose() { clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
   };
 }

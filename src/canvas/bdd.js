@@ -2,20 +2,27 @@
 // it must be, and which lines join the boxes. Pure functions of the model, so they can be
 // tested without a screen.
 import { ELEMENTS, kindName, LAYERS } from '../model/metamodel.js';
-import { FONTS, textWidth } from './measure.js';
+import { FONTS, textWidth, wrapLines } from './measure.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
 /** @typedef {import('../model/model.js').Rect} Rect */
 /** @typedef {import('../model/metamodel.js').Notation} Notation */
-/** @typedef {{ title: string, rows: string[] }} Compartment */
+/**
+ * @typedef {{
+ *   title: string, rows: string[],
+ *   wrap?: boolean,    // rows wrap onto several lines (requirement text) instead of being cut
+ *   joined?: boolean,  // no separator line above (continues the compartment before it)
+ * }} Compartment
+ */
 /** @typedef {{ stereo: string, name: string, compartments: Compartment[], layerColor: string | null }} NodeContent */
 /**
  * @typedef {{
  *   id: string,                       // stable key: the part id or the relationship id
- *   kind: 'composition' | 'generalization',
- *   from: string, to: string,         // composition: whole → part type; generalization: specific → general
- *   label?: string,                   // role name and multiplicity at the part end
+ *   kind: 'composition' | 'generalization' | 'containment' | 'dependency',
+ *   from: string, to: string,         // composition: whole → part type; generalization: specific → general;
+ *                                     // containment: container → contained; dependency: client → supplier
+ *   label?: string,                   // role name and multiplicity at the part end; «stereotype» on dependencies
  *   element: string,                  // the model element the line stands for
  * }} Edge
  */
@@ -24,7 +31,7 @@ import { FONTS, textWidth } from './measure.js';
 export const BDD_KINDS = ['partDef', 'interfaceDef'];
 
 /** Sizes (px). */
-export const BOX = { header: 48, titleH: 20, rowH: 17, compPad: 8, padX: 12, minW: 140, minH: 48 };
+export const BOX = { header: 48, titleH: 20, rowH: 17, compPad: 8, padX: 12, minW: 140, minH: 48, wrapW: 240, wrapLines: 6 };
 
 /** @param {Element} d the diagram @param {string} key */
 const flag = (d, key) => d.props[key] !== false;
@@ -68,18 +75,36 @@ export function nodeContent(m, el, diagram, n) {
   return { stereo, name: el.name, compartments, layerColor: layer ? (LAYERS.find((l) => l.id === layer)?.color || null) : null };
 }
 
-/** The smallest box that shows everything without cutting text. @param {NodeContent} c */
-export function naturalSize(c) {
-  let w = Math.max(textWidth(c.name, FONTS.name), textWidth(c.stereo, FONTS.stereo));
-  let h = BOX.header;
-  for (const comp of c.compartments) {
-    w = Math.max(w, textWidth(comp.title.toUpperCase(), FONTS.title), ...comp.rows.map((r) => textWidth(r, FONTS.row)));
-    h += BOX.titleH + comp.rows.length * BOX.rowH + BOX.compPad;
-  }
-  return { w: Math.ceil(Math.max(BOX.minW, w + BOX.padX * 2)), h: Math.ceil(Math.max(BOX.minH, h)) };
+/** Height of a compartment's title band (none when it has no title). @param {Compartment} comp */
+export const titleH = (comp) => (comp.title ? BOX.titleH : (comp.joined ? 0 : 6));
+
+/** The lines a compartment's rows take at an inner width. @param {Compartment} comp @param {number} inner @returns {string[]} */
+export function compartmentLines(comp, inner) {
+  if (!comp.wrap) return comp.rows;
+  return comp.rows.flatMap((r) => wrapLines(r, inner, FONTS.row, BOX.wrapLines));
 }
 
-/** Height needed for the content at any width (text is cut, never wrapped, on diagrams). @param {NodeContent} c */
+/** Height of the content when the box is `w` wide. @param {NodeContent} c @param {number} w */
+export function heightAt(c, w) {
+  let h = BOX.header;
+  for (const comp of c.compartments) h += titleH(comp) + compartmentLines(comp, w - BOX.padX * 2).length * BOX.rowH + BOX.compPad;
+  return Math.ceil(Math.max(BOX.minH, h));
+}
+
+/** The smallest box that shows everything without cutting text. Wrapped text is wrapped at a comfortable width. @param {NodeContent} c */
+export function naturalSize(c) {
+  let w = Math.max(textWidth(c.name, FONTS.name), textWidth(c.stereo, FONTS.stereo));
+  for (const comp of c.compartments) {
+    w = Math.max(w, textWidth(comp.title.toUpperCase(), FONTS.title), ...comp.rows.map((r) => comp.wrap ? Math.min(BOX.wrapW, textWidth(r, FONTS.row)) : textWidth(r, FONTS.row)));
+  }
+  const width = Math.ceil(Math.max(BOX.minW, w + BOX.padX * 2));
+  return { w: width, h: heightAt(c, width) };
+}
+
+/** Whether a box's height depends on its width. @param {NodeContent} c */
+export const wraps = (c) => c.compartments.some((x) => x.wrap);
+
+/** Height needed for the content at its natural width. @param {NodeContent} c */
 export const minHeight = (c) => naturalSize(c).h;
 
 /**
@@ -107,5 +132,38 @@ export function edgesFor(m, shown) {
 
 /** Can `el` be shown on a bdd? @param {Element | undefined} el */
 export const canShow = (el) => !!el && BDD_KINDS.includes(el.kind);
+
+/** Types of parts below, generalizations either way. @param {Model} m @param {string} id */
+export function relatedOf(m, id) {
+  /** @type {string[]} */
+  const below = [], above = [];
+  for (const k of m.children(id)) if (k.kind === 'part' && k.props.type && canShow(m.get(k.props.type))) below.push(k.props.type);
+  for (const rel of m.relsFrom(id)) if (rel.kind === 'generalize' && rel.target) above.push(rel.target);
+  for (const rel of m.relsTo(id)) if (rel.kind === 'generalize' && rel.source) below.push(rel.source);
+  return { above, below };
+}
+
+/** The bdd as a diagram kind for the canvas. */
+export const bddKind = {
+  kind: 'bdd',
+  canShow,
+  nodeContent,
+  edgesFor,
+  related: relatedOf,
+  /** Relationships a drag from one box to another can make. @param {Model} m @param {string} a @param {string} b */
+  linkKinds: (m, a, b) => ['generalize'].filter((k) => m.canLink(k, a, b)),
+  add: /** @type {{ kind: string, label: string, title: string }[]} */ ([
+    { kind: 'partDef', label: 'Block', title: 'Add a new block to the model and this diagram' },
+    { kind: 'interfaceDef', label: 'Interface', title: 'Add a new interface block' },
+  ]),
+  addLayer: /** @type {import('../model/metamodel.js').Layer} */ ('l'),
+  flags: /** @type {[string, string][]} */ ([['showParts', 'Parts compartment'], ['showValues', 'Values compartment'], ['showPorts', 'Ports compartment'], ['showRoles', 'Role names on lines'], ['snap', 'Snap to grid and guides']]),
+  empty: 'Drag blocks here from the model browser, or add one with the Block button.',
+  noun: 'blocks',
+  /** @param {Element | undefined} e @param {Notation} n */
+  refuse: (e, n) => `A block definition diagram shows blocks and interface blocks. ${e?.name || 'That'} is a ${kindName(e?.kind || '', n)}.`,
+};
+
+/** @typedef {typeof bddKind} DiagramKind */
 
 export { ELEMENTS };
