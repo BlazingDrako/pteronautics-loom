@@ -5,7 +5,13 @@
  * @typedef {{ id: string, name: string, kind: string, props: Record<string, boolean> }} Preset  saved view options for a kind of diagram
  * @typedef {{
  *   notation: Notation,
- *   inspector: boolean,
+ *   inspector: boolean,     // (no longer used: properties open in a floating panel)
+ *   sidebarWidth: number,   // the model browser's width in pixels
+ *   sidebar: boolean,       // the model browser is shown
+ *   density: 'comfortable' | 'compact',
+ *   paletteLabels: boolean, // diagram tool palettes show names beside their icons
+ *   treeLines: boolean,     // the model browser lists lines too (flows, transitions, connectors, bindings)
+ *   props: { x: number, y: number, w: number, h: number } | null,  // where the properties panel was left
  *   textPane: boolean,      // the SysML v2 text beside the open view
  *   textWidth: number,      // its width in pixels
  *   problems: boolean,      // the problems panel under the open view
@@ -31,7 +37,7 @@ const KEY = 'loom-settings';
 /** @returns {Settings} */
 export function defaults() {
   return {
-    notation: 'sysml', inspector: true, textPane: false, textWidth: 460, problems: false, problemsH: 220,
+    notation: 'sysml', inspector: true, sidebarWidth: 260, sidebar: true, density: 'comfortable', paletteLabels: false, treeLines: false, props: null, textPane: false, textWidth: 460, problems: false, problemsH: 220,
     accent: 'blue', contrast: 'normal', grid: true, keys: {}, presets: [], defaultPresets: {},
     integrations: { works: false },
   };
@@ -48,6 +54,14 @@ export function sanitize(raw) {
   const r = /** @type {Record<string, any>} */ (raw);
   if (r.notation === 'sysml' || r.notation === 'v2' || r.notation === 'guided') d.notation = r.notation;
   if (typeof r.inspector === 'boolean') d.inspector = r.inspector;
+  if (typeof r.sidebarWidth === 'number' && Number.isFinite(r.sidebarWidth)) d.sidebarWidth = Math.round(Math.min(560, Math.max(180, r.sidebarWidth)));
+  if (typeof r.sidebar === 'boolean') d.sidebar = r.sidebar;
+  if (r.density === 'comfortable' || r.density === 'compact') d.density = r.density;
+  if (typeof r.paletteLabels === 'boolean') d.paletteLabels = r.paletteLabels;
+  if (typeof r.treeLines === 'boolean') d.treeLines = r.treeLines;
+  if (r.props && typeof r.props === 'object' && ['x', 'y', 'w', 'h'].every((k) => typeof r.props[k] === 'number' && Number.isFinite(r.props[k]))) {
+    d.props = { x: Math.round(r.props.x), y: Math.round(r.props.y), w: Math.round(Math.min(900, Math.max(300, r.props.w))), h: Math.round(Math.min(2000, Math.max(220, r.props.h))) };
+  }
   if (typeof r.textPane === 'boolean') d.textPane = r.textPane;
   if (typeof r.textWidth === 'number' && Number.isFinite(r.textWidth)) d.textWidth = Math.round(Math.min(1200, Math.max(280, r.textWidth)));
   if (typeof r.problems === 'boolean') d.problems = r.problems;

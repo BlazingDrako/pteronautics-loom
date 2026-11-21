@@ -50,7 +50,12 @@ export function openPreferences(ctx, tab = 'look') {
             }, st.accent === a ? icon('check') : null))),
             h('small', {}, 'Buttons, selection and links. Blue is the Pteronautics accent.')),
           seg('Contrast', [['normal', 'Normal'], ['high', 'High']], st.contrast, (v) => settings.update((s) => { s.contrast = /** @type {any} */ (v); }), 'High contrast darkens text and lines, for bright rooms, projectors and low vision.'),
+          seg('Density', [['comfortable', 'Comfortable'], ['compact', 'Compact']], st.density, (v) => settings.update((s) => { s.density = /** @type {any} */ (v); }), 'Compact fits more of the model browser, toolbars and properties on the screen.'),
           seg('Notation', [['sysml', 'SysML'], ['v2', 'SysML v2'], ['guided', 'Guided']], st.notation, (v) => settings.update((s) => { s.notation = /** @type {any} */ (v); })),
+          h('div', { class: 'opt' }, h('span', {}, 'Names in diagram palettes', h('small', {}, 'Show each tool\'s name beside its icon. Hover a tool for its name either way.')),
+            h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(st.paletteLabels), 'aria-label': 'Names in diagram palettes', onclick: () => { settings.update((s) => { s.paletteLabels = !s.paletteLabels; }); paint(); } })),
+          h('div', { class: 'opt' }, h('span', {}, 'Model browser', h('small', {}, `Drag its edge to resize it. ${'Mod+B'.replace('Mod', /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl')} hides it to give diagrams the whole window.`)),
+            h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(st.sidebar), 'aria-label': 'Show the model browser', onclick: () => { settings.update((s) => { s.sidebar = !s.sidebar; }); paint(); } })),
           h('div', { class: 'opt' }, h('span', {}, 'Grid on diagrams', h('small', {}, 'The dots behind boxes. Snapping works either way.')),
             h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(st.grid), 'aria-label': 'Grid on diagrams', onclick: () => { settings.update((s) => { s.grid = !s.grid; }); paint(); } })),
         ];

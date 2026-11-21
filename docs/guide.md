@@ -30,19 +30,38 @@ Projects are saved on this device as you work. **Import** brings in a Loom file 
 
 | Area | What it is for |
 | --- | --- |
-| Model browser (left) | Everything in the model, in four layers: **Requirements**, **Functional**, **Logical**, **Physical** (RFLP). Drag to move, F2 to rename, **+** to add |
+| Model browser (left) | Everything in the model, in four layers: **Requirements**, **Functional**, **Logical**, **Physical** (RFLP). Drag its edge to make it wider or narrower; Mod+B hides it to give diagrams the whole window |
 | Stage (middle) | The open diagrams, tables and views, as tabs. **Systems V** shows how far each stage of the V is, and **Model overview** counts it all |
-| Inspector (right) | The selected element: its properties, relationships, problems and where it appears. Mod+. hides it |
-| Status bar | Where the project is saved, its size, its problems (click to open the problems panel) and the notation |
+| Properties (floating) | Double-click any element, on a diagram or in the browser, to see and edit everything about it: name, properties, relationships, problems, where it appears. While open it follows the selection. Drag it by its title, resize it from its corner; Esc closes it. Mod+. opens it for the selection |
+| Project menu (the project's name, top left) | Project settings, saving to a folder, export, import and export of requirements, documents, the SysML v2 server, the text, validation rules and profiles |
+| Status bar | Where the project is saved, its size, its problems (click to open the problems panel) and the notation (click to change it) |
 
 The **command palette** (Mod+K) runs any command and finds any element by name. Every command
-with a shortcut shows it there; change shortcuts in Preferences (Mod+,).
+with a shortcut shows it there; change shortcuts in Preferences (Mod+,). Preferences also have a
+**compact** density that fits more on the screen.
 
-### Notation
+### The model browser
 
-Loom shows the same model in three notations, chosen in Preferences: **SysML** (the v1 names
-engineers know: block, part property, block definition diagram), **SysML v2** (part def, part,
-general view) and **Guided** (plain words for newcomers). The notation never changes the model.
+- **Click** to select, **double-click** for properties (a diagram opens instead), **F2** to rename.
+- **Drag** a row onto another to put it inside, or between two rows to reorder; drag it onto a
+  diagram to show it there. Hover over a closed folder while dragging and it opens. Esc cancels.
+- **Right-click** for a menu: properties, rename, add inside, expand or collapse everything inside,
+  delete. The **+** on a row adds inside it.
+- **Filter by name** at the top narrows the browser to matching elements and their packages.
+- Lines (activity flows, transitions, connectors, bindings) are hidden from the browser unless you
+  turn them on in its options menu (**⋯**); they are always on the diagrams.
+- Alt+↑ and Alt+↓ move the selection among its siblings.
+
+### Diagram palettes
+
+Every diagram has a palette down its left side with a tool for each element and relationship it
+can hold, drawn as its SysML symbol. Hover a tool for its name and what it does.
+
+- Click an element tool, then click on the diagram to place it there. Double-click a tool to
+  place several; Esc or the Select tool puts it down.
+- Click a relationship tool, then click the source and the target (or drag from one to the
+  other). Loom only makes relationships SysML allows, and says why when it cannot.
+- The arrow at the palette's foot shows the tools' names beside their icons.
 
 ## A project, step by step
 
@@ -87,7 +106,8 @@ folders are this same text, plus `.loom/` for ids and layout. The README lists t
 | --- | --- |
 | ⌘K / Ctrl+K | Command palette: any command, any element |
 | ? | The SysML library, on the selected element's kind |
-| ⌘. / Ctrl+. | Show or hide the inspector |
+| ⌘. / Ctrl+. | Properties of the selection (or double-click it) |
+| ⌘B / Ctrl+B | Show or hide the model browser |
 | ⌘E / Ctrl+E | Show or hide the SysML v2 text |
 | ⇧⌘M / Ctrl+Shift+M | Show or hide the problems panel |
 | F8 / Shift+F8 | Next / previous problem |
@@ -99,8 +119,8 @@ folders are this same text, plus `.loom/` for ids and layout. The README lists t
 | ⌘, / Ctrl+, | Preferences |
 | ⇧⌘E / Ctrl+Shift+E | Export the project (.loom.json) |
 
-On a diagram: double-click a box to rename it, scroll to pan, and pinch or Ctrl/⌘+scroll to
-zoom. On an internal block diagram, drag from a port to connect it.
+On a diagram: double-click a box for its properties, F2 or Enter to rename it, scroll to pan,
+and pinch or Ctrl/⌘+scroll to zoom. On an internal block diagram, drag from a port to connect it.
 
 ## Where your work is
 

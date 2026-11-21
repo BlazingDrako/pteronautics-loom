@@ -1,8 +1,8 @@
-// The project workspace: model browser, tabs (the model overview and open diagrams),
-// inspector, status bar.
+// The project workspace: the model browser (resizable, or hidden), tabs (the open views and
+// diagrams), the floating properties panel, the project menu and the status bar.
 import { h, icon, brandMark, formatKeys, toast } from './dom.js';
 import { createTree } from './tree.js';
-import { createInspector } from './inspector.js';
+import { createPropsPanel } from './props.js';
 import { popupMenu } from './menu.js';
 import { LAYERS, ELEMENTS, kindName, isRel, childKinds, isDiagram, DIAGRAM_KINDS } from '../model/metamodel.js';
 import { createDiagramView } from '../canvas/view.js';
@@ -22,7 +22,7 @@ import { populateAct } from '../canvas/act.js';
 import { populateStm } from '../canvas/stm.js';
 import { populatePar } from '../canvas/par.js';
 import { populateUc, populatePkg } from '../canvas/uc.js';
-import { modal, confirm } from './dialog.js';
+import { modal, confirm, prompt } from './dialog.js';
 import { snapshot } from '../model/serialize.js';
 import { applySnapshot } from '../text/build.js';
 import { projectFiles, signature, snapshotFromFiles, pick, FileError, PROJECT_FILE } from '../storage/folder.js';
@@ -113,7 +113,7 @@ export function mountWorkspace(root, ctx) {
     if (id && !model.get(id)) id = null;
     if (id === selected) return;
     selected = id;
-    tree.render(); inspector.render(); paintStage();
+    tree.render(); props.follow(id); paintStage();
     currentView()?.syncSelection(id);
     pane?.syncSelection(id);
     problemsPanel?.render();
@@ -125,16 +125,26 @@ export function mountWorkspace(root, ctx) {
     select,
     create: (kind, owner) => create(kind, owner),
     rename: (id, name) => { edit('Rename', (tx) => tx.rename(id, name)); },
-    move: (id, owner) => edit('Move', (tx) => tx.move(id, owner)),
+    move: (id, owner, index) => edit(model.get(id)?.owner === owner ? 'Reorder' : 'Move', (tx) => tx.move(id, owner, index)),
     remove: (id) => removeEl(id),
     open: (id) => openDiagram(id),
+    openProps: (id) => openProps(id),
+    library: (id) => { const k = model.get(id)?.kind; openDiagram('v:library'); if (k) views.get('v:library')?.show(k); },
     problemsFor,
+    showLines: () => settings.get().treeLines,
   });
-  const inspector = createInspector({
-    model, settings, commands, selected: () => selected, select, edit, meta: () => meta, open: (id) => openDiagram(id),
+  const props = createPropsPanel({
+    model, settings, commands, select, edit, meta: () => meta, open: (id) => openDiagram(id),
     validator, fix: (p) => fixProblem(p), ignore: (p) => ignoreProblem(p), openRules: () => openRules(), openPrefs: (tab) => openPreferences({ settings, commands }, tab),
     create: (kind, owner) => create(kind, owner), newProfile: () => newProfile(),
+    onOpenChange: () => paintTop(),
   });
+  /** Open the properties panel on an element (selecting it). @param {string} id */
+  function openProps(id) {
+    if (!model.get(id)) return;
+    if (selected !== id) select(id);
+    props.show(id);
+  }
 
   // ---------- validation ----------
   /** @param {import('../validate/engine.js').Problem} p */
@@ -180,9 +190,10 @@ export function mountWorkspace(root, ctx) {
     const prof = /** @type {string} */ (model.get(st)?.owner);
     expanded.add(L.id); expanded.add(prof);
     selected = st;
-    tree.render(); inspector.render(); paintStage();
+    tree.render(); props.render(); paintStage();
     tree.startRename(st);
-    toast('Name your stereotype, then choose what it applies to in the inspector.');
+    props.show(st);
+    toast('Name your stereotype, then choose what it applies to.');
   }
 
   // ---------- diagrams ----------
@@ -221,7 +232,7 @@ export function mountWorkspace(root, ctx) {
   function viewFor(id) {
     let v = views.get(id);
     if (!v) {
-      const base = { model, diagramId: id, notation, selected: () => selected, select, edit, newProps, problemsFor, showProblems, settings };
+      const base = { model, diagramId: id, notation, selected: () => selected, select, edit, newProps, problemsFor, showProblems, settings, openProps };
       const kind = model.get(id)?.kind;
       if (id === 'v:home') v = createVHomeView({ ...base, create: (k, owner, props) => create(k, owner, props), openTrace: () => openDiagram('v:trace'), openTable: () => openOrCreate('table'), openMatrix: () => openOrCreate('matrix') });
       else if (id === 'v:trace') v = createTraceView(base);
@@ -274,7 +285,7 @@ export function mountWorkspace(root, ctx) {
     if (pre) model.transact('Apply the default preset', (tx) => tx.setProps(id, presetProps(kind, pre)));
     expanded.add(owner);
     selected = id;
-    tree.render(); inspector.render();
+    tree.render(); props.follow(selected);
     openDiagram(id);
   }
   /** @param {HTMLElement} anchor */
@@ -313,7 +324,7 @@ export function mountWorkspace(root, ctx) {
     if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => { id = tx.create(kind, { owner, props: { ...newProps(kind, owner), ...props } }); })) return;
     expanded.add(owner);
     selected = id;
-    tree.render(); inspector.render(); paintStage();
+    tree.render(); props.follow(selected); paintStage();
     tree.startRename(id);
   }
 
@@ -326,7 +337,7 @@ export function mountWorkspace(root, ctx) {
     const next = sibs[sibs.indexOf(id) + 1] || sibs[sibs.indexOf(id) - 1] || owner;
     if (edit(`Delete ${e.name}`, (tx) => tx.remove(id))) {
       selected = model.get(next) ? next : null;
-      tree.render(); inspector.render(); paintStage();
+      tree.render(); props.render(); paintStage();
       tree.focus();
       toast(`Deleted ${e.name}. ${formatKeys('Mod+Z')} to undo.`);
     }
@@ -434,7 +445,7 @@ export function mountWorkspace(root, ctx) {
     await writeFolder(dir, files);
     meta = await ctx.projects.link(meta.id, dir, dir.name, signature(files));
     folderState = 'synced';
-    paintStatus(); inspector.render();
+    paintStatus(); props.render();
     toast(`Saved to “${dir.name}”. Loom now keeps it up to date as you work.`);
   }
   async function unlinkFolder() {
@@ -442,7 +453,7 @@ export function mountWorkspace(root, ctx) {
     const name = meta.folder.name;
     meta = await ctx.projects.unlink(meta.id);
     folderState = 'none';
-    paintStatus(); inspector.render();
+    paintStatus(); props.render();
     toast(`No longer saving to “${name}”. Its files stay as they are.`);
   }
   /** On opening: if the folder changed since the last sync, offer to load it. */
@@ -479,17 +490,24 @@ export function mountWorkspace(root, ctx) {
     clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400);
     if (selected && !model.get(selected)) selected = null;
     for (const t of [...tabs]) if (!isView(t) && !model.get(t)) closeTab(t);
-    tree.render(); inspector.render(); paintStage(); paintStatus(); paintTop(); paintTabs();
+    tree.render(); props.render(); paintStage(); paintStatus(); paintTop(); paintTabs();
     currentView()?.invalidate();
     if (ev.cause !== 'do') toast(`${ev.cause === 'undo' ? 'Undid' : 'Redid'}: ${ev.label}`);
   });
-  const unsubValid = validator.subscribe(() => { tree.render(); inspector.render(); paintStatus(); problemsPanel?.render(); currentView()?.invalidate(); });
-  const unsubSettings = settings.subscribe(() => { paintPane(); paintProblems(); problemsPanel?.render(); tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
+  const unsubValid = validator.subscribe(() => { tree.render(); props.render(); paintStatus(); problemsPanel?.render(); currentView()?.invalidate(); });
+  const unsubSettings = settings.subscribe(() => { paintPane(); paintProblems(); problemsPanel?.render(); tree.render(); props.render(); paintStage(); paintStatus(); paintShell(); paintTop(); paintTabs(); currentView()?.invalidate(); });
   const onUnload = () => { if (pending) flush(); };
   addEventListener('beforeunload', onUnload);
 
   // ---------- layout ----------
-  const shell = h('div', { class: 'shell' + (settings.get().inspector ? '' : ' no-insp') });
+  const shell = h('div', { class: 'shell' });
+  /** The sidebar's width and whether it shows. */
+  function paintShell() {
+    const st = settings.get();
+    shell.classList.toggle('no-side', !st.sidebar);
+    shell.style.setProperty('--side-w', `${st.sidebarWidth}px`);
+  }
+  paintShell();
   const top = h('header', { class: 'topbar' });
   const stage = h('div', { class: 'stage', role: 'region', 'aria-label': 'Model overview' });
   const tabbar = h('div', { class: 'tabbar', role: 'tablist', 'aria-label': 'Open views' });
@@ -520,9 +538,27 @@ export function mountWorkspace(root, ctx) {
     } else if (!want && problemsPanel) { problemsPanel.el.remove(); problemsPanel = null; }
   }
 
+  // type to narrow the browser to matching names (Esc clears)
+  const treeFilter = h('div', { class: 'tree-filter' }, icon('search'), h('input', { type: 'search', placeholder: 'Filter by name', 'aria-label': 'Filter the model browser by name', spellcheck: 'false' }));
+  const filterInput = /** @type {HTMLInputElement} */ (treeFilter.querySelector('input'));
+  filterInput.addEventListener('input', () => tree.setFilter(filterInput.value));
+  filterInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && filterInput.value) { ev.stopPropagation(); filterInput.value = ''; tree.setFilter(''); }
+    else if (ev.key === 'ArrowDown') { ev.preventDefault(); /** @type {HTMLElement | null} */ (tree.el.querySelector('.ti-name.hit')?.closest('.ti') || tree.el.querySelector('.ti'))?.focus(); }
+  });
   const sidebar = h('aside', { class: 'sidebar', 'aria-label': 'Model' },
-    h('a', { class: 'brand', href: '#/', 'aria-label': 'Pteronautics Loom home' }, brandMark(), h('div', {}, h('div', { class: 'brand-name' }, 'Pteronautics'), h('div', { class: 'brand-sub brand-product' }, 'Loom'))),
-    h('div', { class: 'nav-group' }, 'Model'),
+    h('div', { class: 'side-head' },
+      h('a', { class: 'brand', href: '#/', 'aria-label': 'Pteronautics Loom home' }, brandMark(), h('div', {}, h('div', { class: 'brand-name' }, 'Pteronautics'), h('div', { class: 'brand-sub brand-product' }, 'Loom'))),
+      h('button', { class: 'icon-btn sm side-hide', type: 'button', 'aria-label': 'Hide the sidebar', title: `Hide the sidebar (${formatKeys('Mod+B')})`, onclick: () => commands.run('view.sidebar') }, icon('sidebar'))),
+    h('div', { class: 'nav-group' }, h('span', { class: 'grow' }, 'Model'),
+      h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Add an element', title: 'Add an element where the selection is', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => addHereMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus')),
+      h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Collapse all', title: 'Collapse all', onclick: () => tree.collapseAll() }, icon('collapse')),
+      h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Browser options', title: 'Browser options', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => popupMenu(/** @type {HTMLElement} */ (e.currentTarget), [
+        { label: `${settings.get().treeLines ? '✓ ' : ''}Show lines (flows, transitions, connectors)`, run: () => settings.update((st) => { st.treeLines = !st.treeLines; }) },
+        { label: 'Collapse all', run: () => tree.collapseAll() },
+        { label: settings.get().density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', run: () => settings.update((st) => { st.density = st.density === 'compact' ? 'comfortable' : 'compact'; }) },
+      ], { title: 'Model browser' }) }, icon('more'))),
+    treeFilter,
     tree.el,
     h('div', { class: 'nav-group' }, 'Views'),
     VIEWS.map((v) => h('button', {
@@ -539,18 +575,91 @@ export function mountWorkspace(root, ctx) {
       h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('prefs.open') }, icon('palette'), h('span', { class: 'nav-label' }, 'Preferences')),
       h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('help.shortcuts') }, icon('keyboard'), h('span', { class: 'nav-label' }, 'Shortcuts'))));
 
+  // drag the sidebar's edge to resize it; double-click the edge for the default width
+  const resizer = h('div', { class: 'side-resizer', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the sidebar', tabindex: '0', title: 'Drag to resize · double-click to reset' });
+  resizer.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    resizer.setPointerCapture(ev.pointerId);
+    const x0 = ev.clientX, w0 = settings.get().sidebarWidth;
+    document.body.classList.add('col-resizing');
+    const move = (/** @type {PointerEvent} */ e) => shell.style.setProperty('--side-w', `${Math.round(Math.min(560, Math.max(180, w0 + e.clientX - x0)))}px`);
+    const up = (/** @type {PointerEvent} */ e) => {
+      resizer.removeEventListener('pointermove', move); resizer.removeEventListener('pointerup', up);
+      document.body.classList.remove('col-resizing');
+      const w = Math.round(Math.min(560, Math.max(180, w0 + e.clientX - x0)));
+      settings.update((st) => { st.sidebarWidth = w; });
+    };
+    resizer.addEventListener('pointermove', move); resizer.addEventListener('pointerup', up);
+  });
+  resizer.addEventListener('dblclick', () => settings.update((st) => { st.sidebarWidth = 260; }));
+  resizer.addEventListener('keydown', (ev) => {
+    const step = ev.shiftKey ? 40 : 10;
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') { ev.preventDefault(); settings.update((st) => { st.sidebarWidth += ev.key === 'ArrowLeft' ? -step : step; }); }
+  });
+
+  /** Add an element where the selection is (the + beside "Model"). @param {HTMLElement} anchor */
+  function addHereMenu(anchor) {
+    const sel = selected ? model.get(selected) : undefined;
+    const owner = sel && childKinds(sel.kind).length ? sel : sel?.owner ? model.get(sel.owner) : model.layers()[0];
+    if (!owner) return;
+    popupMenu(anchor, childKinds(owner.kind).map((k) => ({ label: kindName(k, notation()), hint: ELEMENTS[k].abbr, run: () => create(k, owner.id) })), { title: `Add inside ${owner.name}` });
+  }
+
+  /** Everything about the project, in one menu (the project name in the top bar). @param {HTMLElement} anchor */
+  function projectMenu(anchor) {
+    const st = settings.get();
+    const folders = canUseFolders();
+    popupMenu(anchor, [
+      { label: 'Project settings…', hint: 'name, files, display', run: () => props.show(null) },
+      { label: 'Rename project…', run: async () => { const v = await prompt({ title: 'Rename project', label: 'Name', value: model.root().name, ok: 'Rename' }); if (v && v.trim()) edit('Rename project', (tx) => tx.rename(model.root().id, v.trim())); } },
+      'sep',
+      ...(meta.folder
+        ? [{ label: `Save now to “${meta.folder.name}”`, run: () => commands.run('project.folder.sync') }, { label: 'Load changes from the folder', run: () => commands.run('project.folder.load') }, { label: 'Stop saving to the folder', run: () => commands.run('project.folder.unlink') }]
+        : folders ? [{ label: 'Save to a folder (SysML text, for git)…', run: () => commands.run('project.folder.link') }] : []),
+      { label: 'Export .zip (SysML text)', run: () => commands.run('project.exportZip') },
+      { label: 'Export .loom.json', hint: formatKeys('Mod+Shift+E'), run: () => commands.run('project.export') },
+      'sep',
+      { label: 'Import requirements (ReqIF, Excel, CSV)…', run: () => commands.run('interop.importReqs') },
+      { label: 'Export requirements…', run: () => commands.run('interop.exportReqs') },
+      { label: 'Generate a document (HTML, PDF)…', run: () => commands.run('doc.generate') },
+      { label: 'Send to a SysML v2 server…', run: () => commands.run('api.send') },
+      'sep',
+      { label: st.textPane ? 'Hide the SysML v2 text' : 'Show the SysML v2 text', hint: formatKeys('Mod+E'), run: () => commands.run('view.text') },
+      { label: 'Validation rules…', run: () => openRules() },
+      { label: 'New profile (your own stereotypes)', run: () => newProfile() },
+    ], { title: model.root().name });
+  }
+  /** The notation switch (the status bar). @param {HTMLElement} anchor */
+  function notationMenu(anchor) {
+    const cur = notation();
+    popupMenu(anchor, /** @type {const} */ ([['sysml', 'SysML', 'Block, part property, block definition diagram'], ['v2', 'SysML v2', 'part def, part, general view'], ['guided', 'Guided', 'Plain words, for newcomers']]).map(([v, label, hint]) => ({
+      label: `${cur === v ? '✓ ' : ''}${label}`, hint, run: () => commands.run(`notation.${v}`),
+    })), { title: 'Notation' });
+  }
+
   function paintTop() {
-    top.replaceChildren(
+    const st = settings.get();
+    top.replaceChildren(...[
+      st.sidebar ? null : h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Show the sidebar', title: `Show the sidebar (${formatKeys('Mod+B')})`, onclick: () => commands.run('view.sidebar') }, icon('sidebar')),
       h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' },
-        h('a', { href: '#/', class: 'crumb-link' }, 'Projects'), h('span', { class: 'sep' }, '›'), h('b', { class: 'crumb-current', title: model.root().name }, model.root().name)),
+        h('a', { href: '#/', class: 'crumb-link' }, 'Projects'), h('span', { class: 'sep' }, '›'),
+        h('button', { class: 'crumb-project', type: 'button', 'aria-haspopup': 'menu', title: 'Project: settings, files, exchange and more', onclick: (/** @type {Event} */ e) => projectMenu(/** @type {HTMLElement} */ (e.currentTarget)) },
+          h('b', { class: 'crumb-current' }, model.root().name), icon('chevDown'))),
       h('div', { style: { flex: '1' } }),
       h('div', { class: 'undo-group' },
         h('button', { class: 'icon-btn', type: 'button', disabled: model.canUndo() ? undefined : true, 'aria-label': 'Undo', title: model.canUndo() ? `Undo ${model.undoLabel()} (${formatKeys('Mod+Z')})` : 'Nothing to undo', onclick: () => commands.run('edit.undo') }, icon('undo')),
         h('button', { class: 'icon-btn', type: 'button', disabled: model.canRedo() ? undefined : true, 'aria-label': 'Redo', title: model.canRedo() ? `Redo ${model.redoLabel()} (${formatKeys('Mod+Shift+Z')})` : 'Nothing to redo', onclick: () => commands.run('edit.redo') }, icon('redo'))),
       h('button', { class: 'palette-trigger', type: 'button', onclick: () => commands.run('palette.open'), 'aria-label': 'Search the model or run a command' },
         icon('search'), h('span', { class: 'pt-label' }, 'Search the model or run a command'), h('span', { class: 'kbd' }, formatKeys('Mod+K'))),
-      h('button', { class: 'icon-btn' + (settings.get().inspector ? ' on' : ''), type: 'button', 'aria-label': 'Show or hide the inspector', 'aria-pressed': String(settings.get().inspector), title: `Inspector (${formatKeys('Mod+.')})`, onclick: () => commands.run('view.inspector') }, icon('panel')));
+      h('div', { class: 'top-tools' },
+        h('button', { class: 'icon-btn' + (st.textPane ? ' on' : ''), type: 'button', 'aria-label': 'SysML v2 text', 'aria-pressed': String(st.textPane), title: `SysML v2 text (${formatKeys('Mod+E')})`, onclick: () => commands.run('view.text') }, icon('code')),
+        h('button', { class: 'icon-btn' + (st.problems ? ' on' : ''), type: 'button', 'aria-label': 'Problems', 'aria-pressed': String(st.problems), title: `Problems (${formatKeys('Mod+Shift+M')})`, onclick: () => commands.run('view.problems') }, icon('alert')),
+        h('button', { class: 'icon-btn' + (props.isOpen() ? ' on' : ''), type: 'button', 'aria-label': 'Properties', 'aria-pressed': String(props.isOpen()), title: `Properties of the selection (${formatKeys('Mod+.')}, or double-click an element)`, onclick: () => toggleProps() }, icon('panel'))),
+    ].filter((x) => x !== null));
   }
+  /** Show the selection's properties, or close them. */
+  function toggleProps() { props.toggle(selected); paintTop(); }
 
   function paintStage() {
     const n = notation();
@@ -578,7 +687,7 @@ export function mountWorkspace(root, ctx) {
           h('div', { class: 'eyebrow' }, total ? 'Model overview' : 'New project'),
           h('h2', {}, total ? model.root().name : 'Start your model')),
         h('p', { class: 'overview-sub' }, total
-          ? `${total} elements and ${model.count() - model.elementCount()} relationships across the four RFLP layers. Diagrams come next; for now, build the model in the model browser.`
+          ? `${total} elements and ${model.count() - model.elementCount()} relationships across the four RFLP layers. Open a diagram with the + beside the tabs, and double-click anything to edit it.`
           : n === 'guided'
             ? 'A Loom model has four layers. Start with what the system must do, then describe the parts that do it.'
             : 'Loom organizes a model in four RFLP layers, traced end to end from requirements to physical parts. Use the + buttons or the command palette to add elements.')),
@@ -593,7 +702,7 @@ export function mountWorkspace(root, ctx) {
       folderPill(),
       problemsPill(),
       h('span', { class: 'grow' }),
-      h('span', {}, st.notation === 'guided' ? 'Guided notation' : st.notation === 'v2' ? 'SysML v2 notation' : 'SysML notation'),
+      h('button', { class: 'pill notation-pill', type: 'button', 'aria-haspopup': 'menu', title: 'Change the notation: the names Loom uses (the model stays the same)', onclick: (/** @type {Event} */ e) => notationMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, st.notation === 'guided' ? 'Guided notation' : st.notation === 'v2' ? 'SysML v2 notation' : 'SysML notation', icon('chevDown')),
       st.integrations.works ? h('span', { class: 'pill accent' }, 'Works linked') : null,
     ].filter((x) => x !== null));
   }
@@ -632,7 +741,7 @@ export function mountWorkspace(root, ctx) {
     v.invalidate();
   }
 
-  shell.append(sidebar, top, mainEl, inspector.el, status);
+  shell.append(sidebar, resizer, top, mainEl, status, props.el);
   paintPane();
   paintProblems();
   checkFolderOnOpen();
@@ -649,6 +758,10 @@ export function mountWorkspace(root, ctx) {
     /** @param {string} kind */
     newElement(kind) { const o = ownerFor(kind); if (o) create(kind, o); },
     rename() { if (selected) { const e = model.get(selected); if (e && !e.layer && e.owner) tree.startRename(selected); } },
+    /** Show or hide the selection's properties. */
+    toggleProps,
+    /** The project's settings, in the properties panel. */
+    projectSettings: () => { props.show(null); paintTop(); },
     canEditSelection: () => { const e = selected ? model.get(selected) : undefined; return !!e && !e.layer && !!e.owner && !isRel(e.kind); },
     remove() { if (selected) removeEl(selected); },
     flush,
@@ -688,7 +801,7 @@ export function mountWorkspace(root, ctx) {
       const p = problemsPanel?.step(dir);
       if (p) toast(p.message);
     },
-    dispose() { pane?.dispose(); clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); unsubValid(); validator.dispose(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
+    dispose() { props.dispose(); pane?.dispose(); clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); unsubValid(); validator.dispose(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
   };
 }
 

@@ -14,7 +14,15 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (1.0.0: desktop, offline and launch)
+## What works today (1.1.0: a roomier, easier workspace)
+
+- **Diagram palettes**: every diagram has a tool palette down its left side, like Cameo's, with a tool for each element and relationship that diagram can hold, drawn as its SysML symbol (block, interface block, requirement, test case, action, each control node, lane, state and pseudo-state, region, actor, use case, subject, package, equation, value, part, port, lifeline, fragment, operand) and each relationship (generalization, satisfy, verify, derive, refine, copy, trace, control and object flow, transition, include, extend, participate, import, binding, connector, and call, signal, reply and create messages). Hover a tool for what it is and how to use it. Click a tool, then click on the diagram to place the element **where you click** (inside a lane or a state if you click there); click a relationship tool, then the source and the target. Double-click a tool to keep it for several. Tool names can be shown beside the icons.
+- **Properties in a floating panel** instead of a fixed column: the diagram gets the whole width. **Double-click** any element, on a diagram or in the browser, to edit it. The panel follows the selection while open, can be moved and resized, and opens where you left it. Mod+. opens it for the selection.
+- **A project menu** on the project's name in the top bar: project settings, saving to a folder, exports, requirements exchange, documents, the SysML v2 server, the text, rules and profiles (what the empty inspector used to hold). The status bar's notation switches notation in one click.
+- **The model browser**: drag works at once, selected or not, in every browser (it no longer uses the browser's own drag and drop). Drop **between rows to reorder**, onto a row to move inside it, or onto a diagram to show it there; a line shows where it will land, folders open as you hover, and the browser scrolls at its edges. Right-click for a menu (properties, rename, add inside, expand or collapse all, delete). The arrows have a bigger target and work without selecting. A **filter box** narrows it to matching names. Lines (flows, transitions, connectors, bindings) are hidden unless you ask for them. Alt+↑/↓ reorders.
+- **A resizable sidebar**: drag its edge (or use the arrow keys on it), double-click the edge to reset, Mod+B to hide it. **Compact view** in Preferences fits more on the screen.
+
+### 1.0.0: desktop, offline and launch
 
 - **Install it as an app** (Chrome, Edge, Arc; Safari's *Add to Dock*): its own window, and it **works offline**, because every file it needs is kept by a service worker. While online it still fetches the newest files first, so updates arrive on the next launch. The installed app opens `.loom.json`, `.zip`, `.sysml`, Cameo and ReqIF files handed to it, and has a *New project* shortcut. See [docs/desktop.md](docs/desktop.md).
 - **Desktop:** `Pteronautics Loom.app` starts Loom from this folder on macOS, like the Atlas launcher. `desktop/tauri/` is a Tauri 2 project for a native build on macOS, Windows and Linux (not built yet; it needs Rust).
@@ -218,9 +226,11 @@ src/pwa.js                   the offline app: service worker registration, insta
 src/validate/worker.js       the validation worker (a copy of the model that follows edits)
 src/storage/projects.js      projects on this device (IndexedDB, memory fallback), import and export
 src/ui/home.js               the Home page
-src/ui/workspace.js          a project's window: browser, overview, inspector, status bar
+src/ui/workspace.js          a project's window: browser, tabs, project menu, sidebar, status bar
 src/ui/tree.js               the model browser
-src/ui/inspector.js          the inspector
+src/ui/inspector.js          what the properties panel shows: every property, relationship and problem of an element
+src/ui/props.js              the floating properties panel
+src/canvas/tools.js          the diagram tool palettes and their SysML symbols
 src/ui/palette.js            the command palette
 src/ui/dialog.js, menu.js    dialogs and popup menus
 src/canvas/view.js           the diagram canvas: rendering, camera, selection, editing

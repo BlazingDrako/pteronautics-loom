@@ -70,7 +70,12 @@ const ICONS = {
   undo: '<path d="M9 14 L4 9 L9 4"/><path d="M4 9 H14 a6 6 0 0 1 0 12 H11"/>',
   redo: '<path d="M15 14 L20 9 L15 4"/><path d="M20 9 H10 a6 6 0 0 0 0 12 H13"/>',
   chevRight: '<path d="M9 6 L15 12 L9 18"/>',
+  chevLeft: '<path d="M15 6 L9 12 L15 18"/>',
   chevDown: '<path d="M6 9 L12 15 L18 9"/>',
+  grip: '<g fill="currentColor" stroke="none"><circle cx="9" cy="7" r="1.4"/><circle cx="15" cy="7" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="17" r="1.4"/><circle cx="15" cy="17" r="1.4"/></g>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4 V20"/>',
+  collapse: '<path d="M7 4 L12 9 L17 4 M7 20 L12 15 L17 20"/>',
+  pointer: '<path d="M6 3 L18 13 L12.5 13.6 L15.5 20 L13 21 L10 14.8 L6 18.5 Z"/>',
   grid: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>',
   vee: '<path d="M3 5 L12 19 L21 5"/><path d="M7.5 5 H3 M21 5 H16.5"/>',
   related: '<rect x="8" y="3" width="8" height="5" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/><path d="M12 8 V12 M6.5 16 V12 H17.5 V16"/>',
@@ -156,6 +161,7 @@ export function applyLook(o) {
   if (o.accent && o.accent !== 'blue') r.accent = o.accent; else delete r.accent;
   if (o.contrast === 'high') r.contrast = 'high'; else delete r.contrast;
   if (o.grid === false) r.grid = 'off'; else delete r.grid;
+  if (o.density === 'compact') r.density = 'compact'; else delete r.density;
   dispatchEvent(new Event('themechange'));
 }
 

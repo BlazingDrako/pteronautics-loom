@@ -6,7 +6,11 @@ import { h } from './dom.js';
 /** @type {(() => void) | null} */
 let closeOpen = null;
 
-/** @param {HTMLElement} anchor @param {MenuItem[]} items @param {{ title?: string }} [o] */
+/**
+ * @param {HTMLElement} anchor what the menu opens from (and gives focus back to)
+ * @param {MenuItem[]} items
+ * @param {{ title?: string, at?: { x: number, y: number } }} [o]  at: open at this point (a right-click) instead of under the anchor
+ */
 export function popupMenu(anchor, items, o = {}) {
   closeOpen?.();
   const buttons = /** @type {HTMLButtonElement[]} */ ([]);
@@ -20,7 +24,7 @@ export function popupMenu(anchor, items, o = {}) {
       buttons.push(b);
       return b;
     }));
-  const r = anchor.getBoundingClientRect();
+  const r = o.at ? { left: o.at.x, right: o.at.x, top: o.at.y, bottom: o.at.y } : anchor.getBoundingClientRect();
   document.body.append(menu);
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
   menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - mw - 8))}px`;

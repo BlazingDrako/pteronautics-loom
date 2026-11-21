@@ -13,6 +13,7 @@ import { ellipsize, FONTS, textWidth } from './measure.js';
 import { kindName } from '../model/metamodel.js';
 import { createRunPanel, emptyMarks } from '../ui/runpanel.js';
 import { sequenceAdapter } from '../sim/adapters.js';
+import { createToolPalette } from './tools.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -112,10 +113,38 @@ export function createSequenceView(ctx) {
   const stage = h('div', { class: 'sdstage', tabindex: '0', role: 'application', 'aria-roledescription': 'sequence diagram' }, svg);
   const zoomLabel = h('span', { class: 'dzoom mono' });
   const n = () => ctx.notation();
+  /** The kind of message the next drag between lifelines makes (a palette tool), and whether it stays armed. */
+  let nextMsg = { kind: 'sync', sticky: false, armed: false };
+  const MSG_HELP = /** @type {Record<string, [string, string]>} */ ({
+    sync: ['Call', 'A synchronous message: the sender waits for the answer.'],
+    async: ['Signal', 'An asynchronous message: the sender carries on.'],
+    reply: ['Reply', 'The answer to a call, back to the caller.'],
+    create: ['Create', 'Creates the lifeline it goes to.'],
+  });
+  const palette = createToolPalette({
+    items: () => [
+      { id: 'select', label: 'Select', symbol: 'pointer', help: 'Select messages and lifelines. Drag a message up or down to move it; drag a lifeline\'s head to reorder.', group: 'select', type: 'select' },
+      { id: 'lifeline', label: kindName('lifeline', ctx.notation()), symbol: 'lifeline', help: 'Add a participant: a part, an actor, or a free lifeline.', hint: 'Click to choose what it represents.', group: 'element', type: 'menu' },
+      { id: 'fragment', label: kindName('fragment', ctx.notation()), symbol: 'fragment', help: 'A combined fragment (alt, opt, loop, par…) around the selected message, or an empty one.', hint: 'Click to choose its operator.', group: 'element', type: 'menu' },
+      { id: 'operand', label: kindName('operand', ctx.notation()), symbol: 'operand', help: 'Another case for the selected fragment.', hint: 'Select a fragment first.', group: 'element', type: 'run' },
+      ...Object.entries(MSG_HELP).map(([k, [label, help]]) => ({ id: `msg:${k}`, label, symbol: k, help, hint: 'Click, then drag from one lifeline to another. Double-click to keep it for several.', group: /** @type {const} */ ('relationship'), type: /** @type {const} */ ('link') })),
+    ],
+    labels: () => !!ctx.settings?.get().paletteLabels,
+    setLabels: (on) => ctx.settings?.update((st) => { st.paletteLabels = on; }),
+    pick(item, sticky, button) {
+      if (item.id === 'lifeline') lifelineMenu(button);
+      else if (item.id === 'fragment') fragmentMenu(button);
+      else if (item.id === 'operand') addOperand();
+      else if (item.id.startsWith('msg:')) {
+        const k = item.id.slice(4);
+        nextMsg = nextMsg.armed && nextMsg.kind === k && !sticky ? { kind: 'sync', sticky: false, armed: false } : { kind: k, sticky, armed: true };
+        palette.setActive(nextMsg.armed ? item.id : 'select', nextMsg.sticky);
+        return;
+      }
+      if (!nextMsg.sticky) { nextMsg = { kind: 'sync', sticky: false, armed: false }; palette.setActive('select'); }
+    },
+  });
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Sequence tools' },
-    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Add a participant', onclick: (/** @type {Event} */ e) => lifelineMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Lifeline'),
-    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Put the selected message in a combined fragment (or add an empty one)', onclick: (/** @type {Event} */ e) => fragmentMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Fragment'),
-    h('button', { class: 'btn sm', type: 'button', title: 'Add an operand (another case) to the selected fragment', onclick: () => addOperand() }, icon('plus'), 'Operand'),
     h('button', { class: 'btn sm run-btn', type: 'button', title: 'Play the scenario message by message, and check it for problems', onclick: () => toggleRun() }, icon('play'), 'Play'),
     h('span', { class: 'dtool-hint' }, 'Drag between lifelines to add a message; drag a message to move it'),
     h('span', { style: { flex: '1' } }),
@@ -123,7 +152,7 @@ export function createSequenceView(ctx) {
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', onclick: () => { k = Math.min(2.5, k * 1.2); render(); } }, icon('plus')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', onclick: () => fit() }, icon('fit')));
-  const dbody = h('div', { class: 'dbody' }, stage);
+  const dbody = h('div', { class: 'dbody' }, palette.el, stage);
   const el = h('div', { class: 'dview sdview' }, toolbar, dbody);
   /** What the run panel lights up. */
   let marks = emptyMarks();
@@ -152,6 +181,7 @@ export function createSequenceView(ctx) {
   function invalidate() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
 
   function render() {
+    palette.sync(ctx.notation());
     if (!sd()) return;
     L = sdLayout(model, owner());
     const sel = ctx.selected();
@@ -232,7 +262,8 @@ export function createSequenceView(ctx) {
     if (!slot) return;
     let id = '';
     const count = model.byKind('message').length;
-    if (ctx.edit('New message', (tx) => { id = tx.create('message', { owner: slot.owner, index: slot.index, name: `message${count + 1}()`, props: { from, to, msgKind: from === to ? 'sync' : 'sync' } }); })) {
+    if (ctx.edit('New message', (tx) => { id = tx.create('message', { owner: slot.owner, index: slot.index, name: `message${count + 1}()`, props: { from, to, msgKind: nextMsg.kind } }); })) {
+      if (!nextMsg.sticky) { nextMsg = { kind: 'sync', sticky: false, armed: false }; palette.setActive('select'); }
       ctx.select(id); render(); startRename(id);
     }
   }
@@ -351,10 +382,12 @@ export function createSequenceView(ctx) {
       render();
     } else render();
   });
+  // double-click a message or lifeline: its properties
   stage.addEventListener('dblclick', (ev) => {
     const t = /** @type {Element} */ (ev.target);
     const id = /** @type {SVGElement | null} */ (t.closest('[data-head]'))?.dataset.head || /** @type {SVGElement | null} */ (t.closest('[data-id]'))?.dataset.id;
-    if (id) startRename(id);
+    if (!id) return;
+    if (ctx.openProps && model.get(id)) ctx.openProps(id); else startRename(id);
   });
   stage.addEventListener('keydown', (ev) => {
     if (ev.target !== stage) return;
@@ -378,7 +411,7 @@ export function createSequenceView(ctx) {
     layout: () => L,
     toggleRun: (/** @type {boolean | undefined} */ open) => toggleRun(open),
     canRun: () => true,
-    dispose() { cancelAnimationFrame(raf); unsub(); runPanel?.dispose(); },
+    dispose() { cancelAnimationFrame(raf); unsub(); runPanel?.dispose(); palette.dispose(); },
   };
 }
 

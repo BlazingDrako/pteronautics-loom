@@ -34,6 +34,7 @@ import { decorate } from '../custom/stereo.js';
 import { presetsFor, presetProps, matches, currentOptions, newPresetId } from '../custom/presets.js';
 import { worst } from '../validate/engine.js';
 import { prompt } from '../ui/dialog.js';
+import { createToolPalette, symbolFor } from './tools.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -50,6 +51,7 @@ import { prompt } from '../ui/dialog.js';
  *   showProblems?: (id: string) => void,
  *   settings?: import('../settings.js').SettingsStore,
  *   offscreen?: boolean,
+ *   openProps?: (id: string) => void,
  * }} ViewCtx
  */
 
@@ -107,6 +109,19 @@ function along(pts, t) {
 /** @param {string} t */
 const esc = (t) => t.replace(/[&<>"]/g, (c) => /** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+/** The relationship tools each kind of diagram offers ('*': any link the diagram allows). */
+const LINK_TOOLS = /** @type {Record<string, string[]>} */ ({
+  bdd: ['generalize'], req: ['satisfy', 'verify', 'derive', 'refine', 'copy', 'trace'], act: ['control', 'object'],
+  stm: ['transition'], uc: ['participate', 'include', 'extend'], pkg: ['import', 'trace'], par: ['*'],
+});
+/** What a relationship tool is called and does, where the metamodel has no entry. */
+const LINK_HELP = /** @type {Record<string, [string, string, string]>} */ ({
+  control: ['Control flow', 'Then: what happens next', 'control'],
+  object: ['Object flow', 'Hands an item from one action to the next', 'object'],
+  transition: ['Transition', 'A change of state, on a trigger, with a guard and an effect', 'transition'],
+  '*': ['Binding', 'Binds an equation\'s parameter to a value', 'bind'],
+});
+
 /** @param {ViewCtx} ctx */
 export function createDiagramView(ctx) {
   const { model, diagramId } = ctx;
@@ -136,7 +151,7 @@ export function createDiagramView(ctx) {
   let guides = [];
   /** @type {{ x: number, y: number, w: number, h: number } | null} */
   let lasso = null;
-  /** Dragging from a box's link handle to relate it to another box. @type {null | { from: string, at: { x: number, y: number }, over: string | null, ok: boolean | null, kinds: string[] }} */
+  /** Dragging from a box's link handle to relate it to another box (only: a relationship tool's kind; pending: waiting for the target's click). @type {null | { from: string, at: { x: number, y: number }, over: string | null, ok: boolean | null, kinds: string[], only?: string, pending?: boolean }} */
   let linking = null;
   const tip = h('div', { class: 'ctip', hidden: true });
   let spaceDown = false;
@@ -162,14 +177,6 @@ export function createDiagramView(ctx) {
   const statusPill = K.status ? h('button', { class: 'pill dstatus', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => statusMenu(/** @type {HTMLElement} */ (e.currentTarget)) }) : null;
   let statusVersion = -1;
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Diagram tools' },
-    K.add.map((/** @type {any} */ a) => h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': a.menu ? 'menu' : undefined, title: a.title,
-      onclick: (/** @type {Event} */ ev) => {
-        if (a.create) { createWith(a); return; }
-        if (!a.menu) { addNew(a.kind, a.props); return; }
-        const items = a.menu(model, diagram(), ctx.notation());
-        popupMenu(/** @type {HTMLElement} */ (ev.currentTarget), items.length ? items.map((/** @type {any} */ it) => ({ label: it.label, hint: it.hint, disabled: it.disabled, run: () => (it.place ? placeExisting(it.place) : addNew(it.kind || a.kind, it.props)) })) : [{ label: a.empty || 'Nothing to add', disabled: true, run: () => {} }], { title: a.label });
-      } }, icon('plus'), a.label)),
-    h('span', { class: 'dtool-sep' }),
     h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: K.kind === 'req' ? 'Show what the selection breaks down into, comes from, and is satisfied, refined or verified by' : 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
     h('button', { class: 'btn sm', type: 'button', onclick: () => tidy(), title: `Tidy layout (${formatKeys('Shift+L')})` }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
@@ -181,7 +188,80 @@ export function createDiagramView(ctx) {
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (+)', onclick: () => zoomBy(1.25) }, icon('plus')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')));
-  const dbody = h('div', { class: 'dbody' }, stage);
+  // ---------- the tool palette ----------
+  /** The armed tool: place an element where you click, or relate two boxes. @type {null | { item: import('./tools.js').ToolItem, kind?: string, props?: Record<string, any>, link?: string, sticky: boolean }} */
+  let tool = null;
+  const toolChip = h('div', { class: 'tool-chip', hidden: true });
+  /** @type {Map<string, { kind?: string, props?: Record<string, any>, link?: string, add?: any }>} */
+  const toolSpec = new Map();
+  function paletteItems() {
+    const n = ctx.notation();
+    const d = diagram();
+    toolSpec.clear();
+    /** @type {import('./tools.js').ToolItem[]} */
+    const items = [{ id: 'select', label: 'Select', symbol: 'pointer', help: 'Select, move and resize boxes. Drag from the dot on a box\'s edge to relate it to another.', group: 'select', type: 'select' }];
+    for (const a of K.add) {
+      const list = a.menu && d ? a.menu(model, d, n) : null;
+      // a menu of fixed variants (control nodes, pseudo-states) becomes one tool each
+      if (list && list.length && list.every((/** @type {any} */ it) => it.props && !it.place)) {
+        for (const it of list) {
+          const id = `${a.kind}:${JSON.stringify(it.props)}`;
+          toolSpec.set(id, { kind: it.kind || a.kind, props: it.props });
+          items.push({ id, label: it.label, symbol: symbolFor(it.kind || a.kind, it.props), help: `${it.label}: ${a.title.replace(/^Add (an? )?/, '').replace(/^[a-z]/, (c) => c.toUpperCase())}`, hint: 'Click, then click on the diagram to place it.', group: 'element', type: 'place' });
+        }
+        continue;
+      }
+      const id = `add:${a.label}`;
+      toolSpec.set(id, { kind: a.kind, props: a.props, add: a });
+      // the kind's name in this notation ("Block", "part def", "Part type"); a step in an activity is an action
+      const named = a.kind === 'action' ? (n === 'guided' ? 'Step' : 'Action') : !a.menu && !a.create && !a.props && ELEMENTS[a.kind] ? kindName(a.kind, n) : a.label;
+      items.push({
+        id, label: named, symbol: a.label === 'Lane' ? 'lane' : a.label === 'Subject' ? 'subject' : symbolFor(a.kind, a.props), help: a.title,
+        hint: a.menu ? 'Click to choose which one.' : a.create ? 'Click to add one.' : 'Click, then click on the diagram to place it. Double-click to place several.',
+        group: 'element', type: a.menu ? 'menu' : a.create ? 'run' : 'place',
+      });
+    }
+    for (const k of LINK_TOOLS[K.kind] || []) {
+      const rel = RELATIONSHIPS[k];
+      const [label, help, symbol] = LINK_HELP[k] || [rel ? rel.names[n] : k, rel ? `${rel.verb[n].replace(/^[a-z]/, (c) => c.toUpperCase())}` : '', k];
+      const id = `link:${k}`;
+      toolSpec.set(id, { link: k });
+      items.push({ id, label, symbol, help, hint: 'Click a box, then the box it relates to (or drag from one to the other).', group: 'relationship', type: 'link' });
+    }
+    return items;
+  }
+  const palette = createToolPalette({
+    items: paletteItems,
+    labels: () => !!ctx.settings?.get().paletteLabels,
+    setLabels: (on) => ctx.settings?.update((st) => { st.paletteLabels = on; }),
+    pick(item, sticky, button) {
+      const spec = toolSpec.get(item.id) || {};
+      if (item.type === 'select') { armTool(null); return; }
+      if (item.type === 'run') { armTool(null); createWith(spec.add); return; }
+      if (item.type === 'menu') {
+        armTool(null);
+        const a = spec.add;
+        const items = a.menu(model, diagram(), ctx.notation());
+        popupMenu(button, items.length ? items.map((/** @type {any} */ it) => ({ label: it.label, hint: it.hint, disabled: it.disabled, run: () => (it.place ? placeExisting(it.place) : addNew(it.kind || a.kind, it.props)) })) : [{ label: a.empty || 'Nothing to add', disabled: true, run: () => {} }], { title: a.label });
+        return;
+      }
+      if (tool && tool.item.id === item.id && !sticky) { armTool(null); return; } // clicking an armed tool puts it down
+      armTool({ item, kind: spec.kind, props: spec.props, link: spec.link, sticky });
+    },
+  });
+  /** @param {typeof tool} t */
+  function armTool(t) {
+    tool = t;
+    if (linking?.pending) { linking = null; tip.hidden = true; }
+    palette.setActive(t ? t.item.id : 'select', !!t?.sticky);
+    stage.classList.toggle('tool-place', t?.item.type === 'place');
+    stage.classList.toggle('tool-link', t?.item.type === 'link');
+    toolChip.hidden = !t;
+    if (t) toolChip.replaceChildren(h('b', {}, t.item.label), h('span', {}, t.item.type === 'place' ? ' Click on the diagram to place it' : ' Click a box, then the one it relates to'), h('span', { class: 'muted' }, t.sticky ? ' · kept until Esc' : ' · Esc to cancel'));
+    invalidate();
+    if (t) stage.focus({ preventScroll: true });
+  }
+  const dbody = h('div', { class: 'dbody' }, palette.el, stage, toolChip);
   const el = h('div', { class: 'dview k-' + diagram()?.kind }, toolbar, dbody);
 
   // ---------- running ----------
@@ -458,6 +538,7 @@ export function createDiagramView(ctx) {
   }
 
   function render() {
+    if (!ctx.offscreen) palette.sync(ctx.notation());
     const t0 = performance.now();
     const d = diagram();
     if (!d) return;
@@ -683,20 +764,21 @@ export function createDiagramView(ctx) {
     return base;
   }
 
-  /** @param {string} kind @param {Record<string, any>} [props] */
-  function addNew(kind, props) {
+  /** Add a new element, at a point on the diagram (default: the middle of the view). @param {string} kind @param {Record<string, any>} [props] @param {{ x: number, y: number }} [at] */
+  function addNew(kind, props, at) {
     const d = diagram();
     if (!d) return;
     const layerPkg = model.layers().find((l) => l.layer === (ELEMENTS[kind].defaultLayer || K.addLayer))?.id;
     const owner = K.ownerFor ? K.ownerFor(model, d, kind, [...sel]) : d.owner && model.canCreate(d.owner, kind) && model.layerOf(d.owner) === ELEMENTS[kind].defaultLayer ? d.owner : layerPkg;
     if (!owner) { toast(`A ${kindName(kind, ctx.notation()).toLowerCase()} cannot be added here`, true); return; }
     const { w, h: hh } = size();
-    const c = toWorld(w / 2, hh / 2);
+    const c = at || toWorld(w / 2, hh / 2);
     const sz = K.newSize?.(kind, props) || { w: kind === 'requirement' ? 240 : 180, h: 60 };
     let id = '';
     if (!ctx.edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
       id = tx.create(kind, { owner, props: { ...ctx.newProps?.(kind, owner), ...props } });
-      const r = freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, sz.w, sz.h);
+      // placed where you clicked (so it can land inside a lane or a state), or in free space
+      const r = at ? { x: Math.round((c.x - sz.w / 2) / GRID) * GRID, y: Math.round((c.y - sz.h / 2) / GRID) * GRID, w: sz.w, h: sz.h } : freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, sz.w, sz.h);
       tx.place(diagramId, { [id]: r });
       K.afterPlace?.(model, tx, diagram(), [id]);
     })) return;
@@ -837,6 +919,25 @@ export function createDiagramView(ctx) {
       drag = { mode: 'pan', sx: ev.clientX, sy: ev.clientY, cx: cam.x, cy: cam.y };
       stage.classList.add('panning');
     } else if (ev.button !== 0) return;
+    else if (linking?.pending) {
+      // the second click of a relationship tool: the target
+      const over = boxAt(w);
+      if (over && over !== linking.from) { linking.pending = false; drag = { mode: 'link' }; trackLink(ev, w); }
+      else { linking = null; tip.hidden = true; invalidate(); return; }
+    }
+    else if (tool?.item.type === 'place') {
+      ev.preventDefault(); // keep focus off the canvas: the new box's name field takes it
+      const t2 = tool;
+      addNew(/** @type {string} */ (t2.kind), t2.props, w);
+      if (!t2.sticky) armTool(null);
+      return;
+    }
+    else if (tool?.item.type === 'link') {
+      const node = t.closest('.node');
+      if (!node) return;
+      linking = { from: /** @type {string} */ (/** @type {HTMLElement} */ (node).dataset.id), at: w, over: null, ok: null, kinds: [], only: tool.link };
+      drag = { mode: 'link' };
+    }
     else if (t.closest('[data-badge]') && ctx.showProblems) {
       ctx.showProblems(/** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-badge]')).dataset.badge));
       return;
@@ -863,11 +964,38 @@ export function createDiagramView(ctx) {
     } else {
       drag = { mode: 'lasso', start: w, additive: ev.shiftKey, base: new Set(ev.shiftKey ? sel : []) };
     }
-    stage.setPointerCapture(ev.pointerId);
+    try { stage.setPointerCapture(ev.pointerId); } catch { /* a pointer that already ended */ }
   });
 
+  /** Follow the pointer while relating two boxes. @param {PointerEvent} ev @param {{ x: number, y: number }} w */
+  function trackLink(ev, w) {
+    if (!linking) return;
+    linking.at = w;
+    const over = boxAt(w);
+    linking.over = over && over !== linking.from ? over : null;
+    linking.kinds = linking.over ? K.linkKinds(model, linking.from, linking.over) : [];
+    if (linking.only && linking.only !== '*') linking.kinds = linking.kinds.filter((k) => k === linking?.only);
+    linking.ok = linking.over ? linking.kinds.length > 0 : null;
+    const n = ctx.notation();
+    const a = elOf(linking.from)?.name || '', b = linking.over ? elOf(linking.over)?.name || '' : '';
+    const sb = stage.getBoundingClientRect();
+    if (linking.over) {
+      tip.textContent = linking.ok
+        ? `${a} ${linking.kinds.map((k) => linkVerb(k, n)).join(' / ')} ${b}`
+        : alreadyLinked(linking.from, linking.over) ? `✕ ${a} and ${b} are already related` : `✕ ${a} cannot be related to ${b} ${linking.only && linking.only !== '*' ? `by ${linkName(linking.only).toLowerCase()}` : 'here'}`;
+      tip.classList.toggle('bad', !linking.ok);
+      tip.hidden = false;
+    } else if (linking.pending) {
+      tip.textContent = `Now click what ${a} relates to`;
+      tip.classList.remove('bad');
+      tip.hidden = false;
+    } else tip.hidden = true;
+    tip.style.left = `${ev.clientX - sb.left + 14}px`; tip.style.top = `${ev.clientY - sb.top + 16}px`;
+    invalidate();
+  }
+
   stage.addEventListener('pointermove', (ev) => {
-    if (!drag) return;
+    if (!drag) { if (linking?.pending) trackLink(ev, eventWorld(ev)); return; }
     const w = eventWorld(ev);
     const d = diagram();
     const snap = d?.props.snap !== false && !ev.altKey;
@@ -893,23 +1021,7 @@ export function createDiagramView(ctx) {
       override.set(drag.id, { x: o.x, y: o.y, w: nw, h: Math.max(minH(drag.id, nw), nh) });
       invalidate();
     } else if (drag.mode === 'link' && linking) {
-      linking.at = w;
-      const over = boxAt(w);
-      linking.over = over && over !== linking.from ? over : null;
-      linking.kinds = linking.over ? K.linkKinds(model, linking.from, linking.over) : [];
-      linking.ok = linking.over ? linking.kinds.length > 0 : null;
-      const n = ctx.notation();
-      const a = elOf(linking.from)?.name || '', b = linking.over ? elOf(linking.over)?.name || '' : '';
-      if (linking.over) {
-        tip.textContent = linking.ok
-          ? `${a} ${linking.kinds.map((k) => linkVerb(k, n)).join(' / ')} ${b}`
-          : alreadyLinked(linking.from, linking.over) ? `✕ ${a} and ${b} are already related` : `✕ ${a} cannot be related to ${b} here`;
-        tip.classList.toggle('bad', !linking.ok);
-        const sb = stage.getBoundingClientRect();
-        tip.style.left = `${ev.clientX - sb.left + 14}px`; tip.style.top = `${ev.clientY - sb.top + 16}px`;
-        tip.hidden = false;
-      } else tip.hidden = true;
-      invalidate();
+      trackLink(ev, w);
     } else if (drag.mode === 'lasso') {
       lasso = { x: Math.min(drag.start.x, w.x), y: Math.min(drag.start.y, w.y), w: Math.abs(w.x - drag.start.x), h: Math.abs(w.y - drag.start.y) };
       const hit = new Set(drag.base);
@@ -948,6 +1060,10 @@ export function createDiagramView(ctx) {
       ctx.select(d.el);
     } else if (d.mode === 'link' && linking) {
       const l = linking; linking = null; tip.hidden = true;
+      // a relationship tool, clicked on its source: wait for the target's click
+      if (!l.over && l.only) { linking = { ...l, pending: true }; trackLink(ev, eventWorld(ev)); invalidate(); return; }
+      if (l.over && !l.kinds.length && l.only) toast(tip.textContent?.replace(/^✕ /, '') || 'Those cannot be related', true);
+      if (l.over && l.kinds.length && tool && !tool.sticky) armTool(null);
       if (l.over && l.kinds.length) {
         const n = ctx.notation();
         const make = (/** @type {string} */ k) => {
@@ -1013,9 +1129,14 @@ export function createDiagramView(ctx) {
     return [dx, dy];
   }
 
+  // double-click a box: its properties (F2 or Enter renames it in place)
   stage.addEventListener('dblclick', (ev) => {
+    if (tool) return;
     const n = /** @type {Element} */ (ev.target).closest('.node');
-    if (n) startRename(/** @type {string} */ (/** @type {HTMLElement} */ (n).dataset.id));
+    if (!n) return;
+    const id = /** @type {string} */ (/** @type {HTMLElement} */ (n).dataset.id);
+    const el = model.get(id.split('/').pop() || id);
+    if (ctx.openProps && el) ctx.openProps(el.id); else startRename(id);
   });
 
   stage.addEventListener('wheel', (ev) => {
@@ -1031,11 +1152,18 @@ export function createDiagramView(ctx) {
     ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; stage.classList.add('drop-target');
   });
   stage.addEventListener('dragleave', () => stage.classList.remove('drop-target'));
+  // the model browser drags with pointer events and hands over the element here
+  stage.dataset.loomDrop = '';
+  stage.addEventListener('loom-drop', (ev) => { const d = /** @type {CustomEvent} */ (ev).detail; dropElement(d.id, d); });
   stage.addEventListener('drop', (ev) => {
-    stage.classList.remove('drop-target');
     const id = ev.dataTransfer?.getData('application/x-loom-id');
-    if (!id) return;
+    if (!id) { stage.classList.remove('drop-target'); return; }
     ev.preventDefault();
+    dropElement(id, ev);
+  });
+  /** Show an element dropped at a point. @param {string} id @param {{ clientX: number, clientY: number }} ev */
+  function dropElement(id, ev) {
+    stage.classList.remove('drop-target');
     const e = elOf(id);
     if (!canShow(e)) { toast(K.refuse(e, ctx.notation()), true); return; }
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
@@ -1044,7 +1172,7 @@ export function createDiagramView(ctx) {
     if (nat.x !== undefined) { if (commit('Show on diagram', { [id]: nat })) setSel(new Set([id])); return; }
     const fixed = !!content(id).content.fixed;
     if (commit('Show on diagram', { [id]: freeSpot(w.x - nat.w / 2, w.y - 24, fixed ? nat.w : Math.max(180, nat.w), nat.h) })) setSel(new Set([id]));
-  });
+  }
 
   // ---------- keyboard ----------
   stage.addEventListener('keydown', (ev) => {
@@ -1071,6 +1199,7 @@ export function createDiagramView(ctx) {
       return;
     }
     if (mod && ev.key.toLowerCase() === 'a') { stop(); setSel(new Set(shownIds())); return; }
+    if (ev.key === 'Escape' && (tool || linking)) { stop(); linking = null; tip.hidden = true; armTool(null); return; }
     if (ev.key === 'Escape' && sel.size) { stop(); setSel(new Set()); return; }
     if ((ev.key === 'Enter' || ev.key === 'F2') && sel.size === 1) { stop(); startRename([...sel][0]); return; }
     if (mod) return;
@@ -1100,7 +1229,7 @@ export function createDiagramView(ctx) {
     /** Open or close the run panel (activity and state machine diagrams). @param {boolean} [open] */
     toggleRun: (open) => toggleRun(open),
     canRun: () => !!RUNS[/** @type {string} */ (diagram()?.kind)],
-    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); runPanel?.dispose(); },
+    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); runPanel?.dispose(); palette.dispose(); },
   };
 }
 

@@ -1,5 +1,6 @@
-// The inspector: everything about the selected element, editable in place.
-// With nothing selected it shows the project, display and integration settings.
+// The inspector: everything about one element, editable in place, shown in the floating
+// properties panel (props.js). With no element it shows the project, display and integration
+// settings.
 import { h, icon } from './dom.js';
 import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel, isDiagram } from '../model/metamodel.js';
 import { levelOf, requirementStatus, idPrefixFor, DEFAULT_PREFIX } from '../model/trace.js';
@@ -276,10 +277,10 @@ export function createInspector(ctx) {
       ? h('h2', { class: 'insp-title' }, e.name)
       : textField('Name', e.name, (v) => ctx.edit('Rename', (tx) => tx.rename(e.id, v)));
     return [
-      h('div', { class: 'insp-pills' },
-        h('span', { class: 'pill', style: layer ? { color: LAYER[layer].color } : {} }, e.layer ? 'RFLP layer' : kindName(e.kind, n)),
-        layer ? h('span', { class: 'pill' }, LAYER[layer].name) : null),
-      path.length ? h('nav', { class: 'insp-path', 'aria-label': 'Location' }, path.map((p, i) => [i ? h('span', { class: 'sep' }, '›') : null, h('button', { type: 'button', class: 'linkish', onclick: () => ctx.select(p.id) }, p.name)])) : null,
+      // where it is: its layer (colored) and the packages above it; the kind is in the panel's title
+      path.length || layer ? h('nav', { class: 'insp-path', 'aria-label': 'Location' },
+        layer ? h('span', { class: 'layer-dot', style: { background: LAYER[layer].color } }) : null,
+        path.map((p, i) => [i ? h('span', { class: 'sep' }, '›') : null, h('button', { type: 'button', class: 'linkish', title: p.name, onclick: () => ctx.select(p.id) }, p.name)])) : null,
       name,
       e.layer ? h('p', { class: 'muted small' }, `${LAYER[e.layer].note}. Add packages and elements with the + button in the browser.`) : null,
       e.layer ? null : h('p', { class: 'help' }, ELEMENTS[e.kind].help, ' ', h('button', { class: 'linkish', type: 'button', title: 'Open this kind in the SysML library (?)', onclick: () => ctx.commands.run('help.library') }, 'More in the library')),
@@ -311,9 +312,7 @@ export function createInspector(ctx) {
     const notBtn = (v, label) => h('button', { type: 'button', 'aria-pressed': String(st.notation === v), onclick: () => ctx.commands.run(`notation.${v}`) }, label);
     const notes = { sysml: 'SysML v1 vocabulary (Block, Part property…)', v2: 'SysML v2 keywords (part def, part…)', guided: 'Plain words, for newcomers' };
     return [
-      h('div', { class: 'insp-title' }, 'Nothing selected'),
-      h('div', { class: 'insp-sub' }, 'Select an element in the browser to see and edit it here.'),
-      h('div', { class: 'sec' }, 'Project'),
+      h('div', { class: 'sec sec-first' }, 'Project'),
       textField('Name', m.root().name, (v) => ctx.edit('Rename project', (tx) => tx.rename(m.root().id, v))),
       h('div', { class: 'kv' }, h('span', {}, 'Elements'), h('span', { class: 'mono' }, String(m.elementCount() - 5))),
       h('div', { class: 'kv' }, h('span', {}, 'Relationships'), h('span', { class: 'mono' }, String(m.count() - m.elementCount()))),

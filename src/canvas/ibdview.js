@@ -17,6 +17,7 @@ import { pathData } from './route.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { FRAME, parseKey, partKey, portKey, ownerKey } from '../model/paths.js';
 import { kindName } from '../model/metamodel.js';
+import { createToolPalette } from './tools.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -46,6 +47,7 @@ const roleName = (n) => { const w = n.replace(/[^A-Za-z0-9 ]+/g, ' ').trim().spl
  *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  *   showProblems?: (id: string) => void,
  *   settings?: import('../settings.js').SettingsStore,
+ *   openProps?: (id: string) => void,
  *   offscreen?: boolean,
  * }} ctx
  */
@@ -78,19 +80,32 @@ export function createIbdView(ctx) {
   const stage = h('div', { class: 'dstage ibd', tabindex: '0', role: 'application', 'aria-roledescription': 'diagram' }, svg, tip, live);
   const zoomLabel = h('span', { class: 'dzoom mono' });
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Diagram tools' },
-    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Add a part, typed by a block', onclick: (/** @type {Event} */ e) => partMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Part'),
-    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Add a port to the selected part (or to this block)', onclick: (/** @type {Event} */ e) => portMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Port'),
-    h('span', { class: 'dtool-sep' }),
     h('button', { class: 'btn sm', type: 'button', title: 'Show parts and ports of this block that are not on the diagram yet', onclick: () => showMissing() }, icon('related'), 'Show all'),
     h('button', { class: 'btn sm', type: 'button', title: `Tidy layout (${formatKeys('Shift+L')})`, onclick: () => tidy() }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
-    h('span', { class: 'dtool-hint' }, 'Drag from a port to connect'),
     h('span', { style: { flex: '1' } }),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (−)', onclick: () => zoomBy(1 / 1.25) }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (+)', onclick: () => zoomBy(1.25) }, icon('plus')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')));
-  const el = h('div', { class: 'dview' }, toolbar, stage);
+  // the tool palette: parts, ports, and connectors (made by dragging between ports)
+  const palette = createToolPalette({
+    items: () => [
+      { id: 'select', label: 'Select', symbol: 'pointer', help: 'Select and move parts and ports. Drag a part into another to nest it.', group: 'select', type: 'select' },
+      { id: 'part', label: kindName('part', ctx.notation()), symbol: 'part', help: 'Add a part, typed by a block: a thing inside this block.', hint: 'Click to choose its block, or drag a block here from the model browser.', group: 'element', type: 'menu' },
+      { id: 'port', label: kindName('port', ctx.notation()), symbol: 'port', help: 'Add a port to the selected part (or to this block): a point where things cross its boundary.', hint: 'Click to choose its interface.', group: 'element', type: 'menu' },
+      { id: 'connector', label: kindName('connector', ctx.notation()), symbol: 'connector', help: 'Connect two ports: what flows between parts.', hint: 'Drag from one port to another. Loom checks that their interfaces and directions match.', group: 'relationship', type: 'run' },
+    ],
+    labels: () => !!ctx.settings?.get().paletteLabels,
+    setLabels: (on) => ctx.settings?.update((st) => { st.paletteLabels = on; }),
+    pick(item, _sticky, button) {
+      if (item.id === 'part') partMenu(button);
+      else if (item.id === 'port') portMenu(button);
+      else if (item.id === 'connector') toast('Drag from one port to another to connect them');
+    },
+  });
+  const ibdBody = h('div', { class: 'dbody' }, palette.el, stage);
+  const el = h('div', { class: 'dview' }, toolbar, ibdBody);
 
   // ---------- scene ----------
   const layout = () => /** @type {Record<string, Rect>} */ (diagram()?.layout?.nodes || {});
@@ -121,6 +136,7 @@ export function createIbdView(ctx) {
   function invalidate() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
 
   function render() {
+    palette.sync(ctx.notation());
     const t0 = performance.now();
     const d = diagram();
     const sc = scene();
@@ -749,10 +765,13 @@ export function createIbdView(ctx) {
     }
   }
 
+  // double-click a part or port: its properties
   stage.addEventListener('dblclick', (ev) => {
     const t = /** @type {Element} */ (ev.target);
     const k = /** @type {HTMLElement | null} */ (t.closest('.port') || t.closest('.part'));
-    if (k?.dataset.key) startRename(k.dataset.key);
+    if (!k?.dataset.key) return;
+    const id = k.dataset.key.split(/[/#]/).pop() || '';
+    if (ctx.openProps && model.get(id)) ctx.openProps(id); else startRename(k.dataset.key);
   });
   stage.addEventListener('wheel', (ev) => {
     ev.preventDefault();
@@ -764,11 +783,18 @@ export function createIbdView(ctx) {
   // drop from the model browser
   stage.addEventListener('dragover', (ev) => { if (ev.dataTransfer?.types.includes('application/x-loom-id')) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; stage.classList.add('drop-target'); } });
   stage.addEventListener('dragleave', () => stage.classList.remove('drop-target'));
+  // the model browser drags with pointer events and hands over the element here
+  stage.dataset.loomDrop = '';
+  stage.addEventListener('loom-drop', (ev) => { const d = /** @type {CustomEvent} */ (ev).detail; dropElement(d.id, d); });
   stage.addEventListener('drop', (ev) => {
-    stage.classList.remove('drop-target');
     const id = ev.dataTransfer?.getData('application/x-loom-id');
-    if (!id) return;
+    if (!id) { stage.classList.remove('drop-target'); return; }
     ev.preventDefault();
+    dropElement(id, ev);
+  });
+  /** Show an element dropped at a point. @param {string} id @param {{ clientX: number, clientY: number }} ev */
+  function dropElement(id, ev) {
+    stage.classList.remove('drop-target');
     const e = model.get(id);
     const w = eventWorld(ev);
     const sc = scene();
@@ -792,7 +818,7 @@ export function createIbdView(ctx) {
       return;
     }
     toast(`An internal block diagram shows parts and ports. Drop a block to add a part typed by it.`, true);
-  });
+  }
   /** @param {string} container @param {string} typeId @param {Pt} at */
   function addPartAt(container, typeId, at) {
     const into = /** @type {string} */ (blockOf(container));
@@ -871,6 +897,6 @@ export function createIbdView(ctx) {
     stats: () => ({ lastRenderMs, parts: scene()?.parts.length || 0 }),
     /** @param {Partial<{ x: number, y: number, k: number }>} c */
     setCamera(c) { Object.assign(cam, c); render(); },
-    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); unsub(); },
+    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); unsub(); palette.dispose(); },
   };
 }

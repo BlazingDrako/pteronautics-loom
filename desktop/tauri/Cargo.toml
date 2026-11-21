@@ -1,6 +1,6 @@
 [package]
 name = "pteronautics-loom"
-version = "1.0.0"
+version = "1.1.0"
 description = "Pteronautics Loom: model-based systems engineering with SysML"
 authors = ["Andrew Aguiar"]
 license = "GPL-3.0-or-later"

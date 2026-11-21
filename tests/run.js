@@ -13,6 +13,7 @@ import { analysisTests } from './loom/analysis.tests.js';
 import { customTests } from './loom/custom.tests.js';
 import { interopTests } from './loom/interop.tests.js';
 import { releaseTests } from './loom/release.tests.js';
+import { uiTests } from './loom/ui.tests.js';
 
 /** @typedef {{ name: string, pass: boolean, detail: string, group?: string }} Result */
 /** @typedef {(name: string, pass: unknown, detail?: unknown) => void} Log */
@@ -38,6 +39,7 @@ const SUITES = [
   ['loom', 'Validation and customization: rules, problems, stereotypes, presets, shortcuts', customTests],
   ['loom', 'Interop and documents: ReqIF, Excel, CSV, Cameo XMI, SysML v2 API, documents, library', interopTests],
   ['release', 'Release: validation worker, offline app, samples, desktop', releaseTests],
+  ['ui', 'Workspace: browser dragging and menus, properties panel, sidebar, tool palettes', uiTests],
 ];
 
 /** @param {HTMLElement} out @param {HTMLElement} summary */
