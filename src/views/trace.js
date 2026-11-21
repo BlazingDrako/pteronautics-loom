@@ -5,6 +5,7 @@
 import { h, s, icon } from '../ui/dom.js';
 import { LAYERS, RELATIONSHIPS } from '../model/metamodel.js';
 import { coverage, threadOf, cardOf, pct, targetsOf, TRACE_KINDS } from '../model/trace.js';
+import { roleName } from '../model/framework.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -155,7 +156,7 @@ export function createTraceView(ctx) {
     const thread = selEl && !selEl.source ? threadOf(model, sel || '') : null;
     const shown = new Set();
     lanesEl.replaceChildren(...LANES.map((lane) => {
-      const info = /** @type {typeof LAYERS[number]} */ (LAYERS.find((l) => l.id === lane.layer));
+      const info = { ...(/** @type {typeof LAYERS[number]} */ (LAYERS.find((l) => l.id === lane.layer))), name: roleName(model, lane.layer) };
       let list = cards[lane.layer];
       if (gaps) list = list.filter(({ el: e }) => isGap(cov, e, gaps === 'any' ? undefined : gaps));
       const capped = !expanded.has(lane.layer) && list.length > LANE_CAP;

@@ -8,6 +8,7 @@ import { VERSION } from '../version.js';
 import { fileFormat, modelFromForeignFile, MODEL_ACCEPT, importFromApi } from './interop.js';
 import { SAMPLES, sampleById } from '../model/samples.js';
 import { modelFromFiles } from '../storage/folder.js';
+import { FRAMEWORKS } from '../model/metamodel.js';
 import { canInstall, install, onInstallChange } from '../pwa.js';
 
 /** @typedef {import('../storage/projects.js').ProjectStore} ProjectStore */
@@ -125,11 +126,12 @@ export async function mountHome(root, ctx) {
   }
 
   async function newProject() {
-    /** @type {{ name: string, template: string } | null} */
+    /** @type {{ name: string, template: string, framework: string } | null} */
     const r = await modal({
       title: 'New project', ok: 'Create',
       build: () => {
         const name = h('input', { class: 'field', type: 'text', value: 'Untitled project', maxlength: 200 });
+        const framework = /** @type {HTMLSelectElement} */ (h('select', { class: 'field', 'aria-label': 'Framework' }, FRAMEWORKS.map((f) => h('option', { value: f.id }, `${f.name}: ${Object.values(f.sets).map((x) => x.name).join(', ')}${f.extra ? `, ${f.extra.map((x) => x.name).join(', ')}` : ''}`))));
         let template = 'blank';
         const defaults = new Set(['Untitled project', ...SAMPLES.map((x) => x.name)]);
         const pick = (/** @type {string} */ t) => {
@@ -139,13 +141,14 @@ export async function mountHome(root, ctx) {
         };
         const opts = h('div', { class: 'templates', role: 'group', 'aria-label': 'Start from' },
           h('button', { type: 'button', class: 'template', 'data-t': 'blank', 'aria-pressed': 'true', onclick: () => pick('blank') },
-            h('b', {}, 'Blank'), h('span', {}, 'The four RFLP layers, empty.')),
+            h('b', {}, 'Blank'), h('span', {}, 'Empty, organized as RFLP. Pick another framework below, or later from the project menu.')),
           SAMPLES.map((x) => h('button', { type: 'button', class: 'template', 'data-t': x.id, 'aria-pressed': 'false', onclick: () => pick(x.id) },
             h('b', {}, `${x.title} sample`), h('span', {}, x.blurb))));
         return {
-          body: h('div', {}, h('label', { class: 'field-label' }, 'Name', name), h('div', { class: 'field-label' }, 'Start from'), opts),
+          body: h('div', {}, h('label', { class: 'field-label' }, 'Name', name), h('div', { class: 'field-label' }, 'Start from'), opts,
+            h('label', { class: 'field-label' }, 'Framework', framework, h('small', {}, 'How the top of the model is organized. RFLP is the default; you can change it, rename sets and add your own any time.'))),
           focus: name,
-          value: () => ({ name: name.value.trim() || 'Untitled project', template }),
+          value: () => ({ name: name.value.trim() || 'Untitled project', template, framework: framework.value }),
         };
       },
     });
@@ -200,7 +203,7 @@ export async function mountHome(root, ctx) {
       h('button', { class: 'pcard-open', type: 'button', onclick: () => ctx.open(p.id), 'aria-label': `Open ${p.name}` },
         h('div', { class: 'pcard-stage' },
           h('div', { class: 'pcard-bars' }, LAYERS.map((l) => h('div', { class: 'pcard-bar' },
-            h('span', { class: 'pcard-bar-label' }, l.name),
+            h('span', { class: 'pcard-bar-label', title: p.stats.names?.[l.id] || l.name }, p.stats.names?.[l.id] || l.name),
             h('span', { class: 'pcard-bar-track' }, h('i', { style: { width: `${Math.round(((p.stats.layers[l.id] || 0) / total) * 100)}%`, background: l.color } })),
             h('span', { class: 'pcard-bar-n mono' }, String(p.stats.layers[l.id] || 0)))))),
         h('div', { class: 'pcard-body' },

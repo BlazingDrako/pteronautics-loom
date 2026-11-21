@@ -13,6 +13,7 @@ import { canHaveStereo } from '../model/metamodel.js';
 import { configOf, ruleTitle, SEVERITIES } from '../validate/engine.js';
 import { RULE_SETS } from '../validate/rules.js';
 import { SEV_ICON, SEV_WORD } from './problems.js';
+import { roleNote, frameworkOf } from '../model/framework.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -273,16 +274,15 @@ export function createInspector(ctx) {
     const layer = m.layerOf(e.id);
     const kids = m.children(e.id);
     const path = m.path(e.id).filter((p) => p.owner); // skip the project root
-    const name = e.layer
-      ? h('h2', { class: 'insp-title' }, e.name)
-      : textField('Name', e.name, (v) => ctx.edit('Rename', (tx) => tx.rename(e.id, v)));
+    // every element and set can be renamed (a core set keeps its role whatever it is called)
+    const name = textField('Name', e.name, (v) => ctx.edit('Rename', (tx) => tx.rename(e.id, v)));
     return [
       // where it is: its layer (colored) and the packages above it; the kind is in the panel's title
       path.length || layer ? h('nav', { class: 'insp-path', 'aria-label': 'Location' },
         layer ? h('span', { class: 'layer-dot', style: { background: LAYER[layer].color } }) : null,
         path.map((p, i) => [i ? h('span', { class: 'sep' }, '›') : null, h('button', { type: 'button', class: 'linkish', title: p.name, onclick: () => ctx.select(p.id) }, p.name)])) : null,
       name,
-      e.layer ? h('p', { class: 'muted small' }, `${LAYER[e.layer].note}. Add packages and elements with the + button in the browser.`) : null,
+      e.layer ? h('p', { class: 'muted small' }, `${roleNote(ctx.model, e.layer)}. One of the framework's four core sets (${frameworkOf(ctx.model).name}): rename it as you like. Add packages and elements with the + button in the browser.`) : null,
       e.layer ? null : h('p', { class: 'help' }, ELEMENTS[e.kind].help, ' ', h('button', { class: 'linkish', type: 'button', title: 'Open this kind in the SysML library (?)', onclick: () => ctx.commands.run('help.library') }, 'More in the library')),
       isDiagram(e.kind) ? h('button', { class: 'btn primary sm insp-open', type: 'button', onclick: () => ctx.open(e.id) }, icon('diagram'), 'Open diagram') : null,
       isDiagram(e.kind) ? h('div', { class: 'kv' }, h('span', {}, 'Shows'), h('span', { class: 'mono' }, `${Object.keys(e.layout?.nodes || {}).length} elements`)) : null,
@@ -314,7 +314,7 @@ export function createInspector(ctx) {
     return [
       h('div', { class: 'sec sec-first' }, 'Project'),
       textField('Name', m.root().name, (v) => ctx.edit('Rename project', (tx) => tx.rename(m.root().id, v))),
-      h('div', { class: 'kv' }, h('span', {}, 'Elements'), h('span', { class: 'mono' }, String(m.elementCount() - 5))),
+      h('div', { class: 'kv' }, h('span', {}, 'Elements'), h('span', { class: 'mono' }, String((m.elementCount() - 1 - m.sets().length)))),
       h('div', { class: 'kv' }, h('span', {}, 'Relationships'), h('span', { class: 'mono' }, String(m.count() - m.elementCount()))),
       h('div', { class: 'kv' }, h('span', {}, 'Created'), h('span', {}, new Date(meta.created).toLocaleDateString())),
       h('div', { class: 'sec' }, 'Files'),

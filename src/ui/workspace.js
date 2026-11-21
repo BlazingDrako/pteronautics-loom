@@ -3,6 +3,8 @@
 import { h, icon, brandMark, formatKeys, toast } from './dom.js';
 import { createTree } from './tree.js';
 import { createPropsPanel } from './props.js';
+import { openFrameworkDialog } from './framework.js';
+import { frameworkOf, roleNote, addSet, setColor } from '../model/framework.js';
 import { popupMenu } from './menu.js';
 import { LAYERS, ELEMENTS, kindName, isRel, childKinds, isDiagram, DIAGRAM_KINDS } from '../model/metamodel.js';
 import { createDiagramView } from '../canvas/view.js';
@@ -132,7 +134,17 @@ export function mountWorkspace(root, ctx) {
     library: (id) => { const k = model.get(id)?.kind; openDiagram('v:library'); if (k) views.get('v:library')?.show(k); },
     problemsFor,
     showLines: () => settings.get().treeLines,
+    setColor: (id, color) => { edit('Change the set\'s color', (tx) => tx.setProps(id, { color })); },
   });
+  /** Add a set of your own at the top of the model, and name it. */
+  function newSet() {
+    let id = '';
+    if (!edit('New set', (tx) => { id = addSet(model, tx); })) return;
+    selected = id;
+    tree.render(); props.follow(selected); paintStage();
+    tree.startRename(id);
+    toast('Name your set. Right-click it to change its color.');
+  }
   const props = createPropsPanel({
     model, settings, commands, select, edit, meta: () => meta, open: (id) => openDiagram(id),
     validator, fix: (p) => fixProblem(p), ignore: (p) => ignoreProblem(p), openRules: () => openRules(), openPrefs: (tab) => openPreferences({ settings, commands }, tab),
@@ -554,6 +566,9 @@ export function mountWorkspace(root, ctx) {
       h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Add an element', title: 'Add an element where the selection is', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => addHereMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus')),
       h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Collapse all', title: 'Collapse all', onclick: () => tree.collapseAll() }, icon('collapse')),
       h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': 'Browser options', title: 'Browser options', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => popupMenu(/** @type {HTMLElement} */ (e.currentTarget), [
+        { label: 'New set (a top-level folder of your own)', run: () => newSet() },
+        { label: `Framework: ${frameworkOf(model).name}…`, run: () => chooseFramework() },
+        'sep',
         { label: `${settings.get().treeLines ? '✓ ' : ''}Show lines (flows, transitions, connectors)`, run: () => settings.update((st) => { st.treeLines = !st.treeLines; }) },
         { label: 'Collapse all', run: () => tree.collapseAll() },
         { label: settings.get().density === 'compact' ? 'Comfortable spacing' : 'Compact spacing', run: () => settings.update((st) => { st.density = st.density === 'compact' ? 'comfortable' : 'compact'; }) },
@@ -607,6 +622,10 @@ export function mountWorkspace(root, ctx) {
     popupMenu(anchor, childKinds(owner.kind).map((k) => ({ label: kindName(k, notation()), hint: ELEMENTS[k].abbr, run: () => create(k, owner.id) })), { title: `Add inside ${owner.name}` });
   }
 
+  /** Pick the project's framework (RFLP, Arcadia, MagicGrid, OOSEM, the SysML pillars). */
+  async function chooseFramework() {
+    if (await openFrameworkDialog(model)) toast(`Now organized as ${frameworkOf(model).name}. ${formatKeys('Mod+Z')} to undo.`);
+  }
   /** Everything about the project, in one menu (the project name in the top bar). @param {HTMLElement} anchor */
   function projectMenu(anchor) {
     const st = settings.get();
@@ -627,6 +646,8 @@ export function mountWorkspace(root, ctx) {
       { label: 'Send to a SysML v2 server…', run: () => commands.run('api.send') },
       'sep',
       { label: st.textPane ? 'Hide the SysML v2 text' : 'Show the SysML v2 text', hint: formatKeys('Mod+E'), run: () => commands.run('view.text') },
+      { label: `Framework: ${frameworkOf(model).name}…`, hint: 'RFLP, Arcadia, MagicGrid…', run: () => chooseFramework() },
+      { label: 'New set (a top-level folder of your own)', run: () => newSet() },
       { label: 'Validation rules…', run: () => openRules() },
       { label: 'New profile (your own stereotypes)', run: () => newProfile() },
     ], { title: model.root().name });
@@ -664,9 +685,11 @@ export function mountWorkspace(root, ctx) {
 
   function paintStage() {
     const n = notation();
-    const total = model.elementCount() - 5;
-    const layerCards = model.layers().map((l) => {
-      const info = /** @type {typeof LAYERS[number]} */ (LAYERS.find((x) => x.id === l.layer));
+    const total = (model.elementCount() - 1 - model.sets().length);
+    const layerCards = model.sets().map((l) => {
+      // a core set (its role's color and what it is for) or a set of your own
+      const base = l.layer ? /** @type {typeof LAYERS[number]} */ (LAYERS.find((x) => x.id === l.layer)) : null;
+      const info = { name: l.name, note: base ? roleNote(model, /** @type {string} */ (l.layer)) : String(l.props.doc || 'A set of your own'), color: setColor(l) };
       const kids = model.children(l.id);
       let deep = 0; const walk = (/** @type {string} */ x) => { for (const c of model.children(x)) { deep++; walk(c.id); } }; walk(l.id);
       return h('section', { class: 'lcard', style: { '--lc': info.color } },
@@ -688,10 +711,10 @@ export function mountWorkspace(root, ctx) {
           h('div', { class: 'eyebrow' }, total ? 'Model overview' : 'New project'),
           h('h2', {}, total ? model.root().name : 'Start your model')),
         h('p', { class: 'overview-sub' }, total
-          ? `${total} elements and ${model.count() - model.elementCount()} relationships across the four RFLP layers. Open a diagram with the + beside the tabs, and double-click anything to edit it.`
+          ? `${total} elements and ${model.count() - model.elementCount()} relationships, organized as ${frameworkOf(model).name}. Open a diagram with the + beside the tabs, and double-click anything to edit it.`
           : n === 'guided'
             ? 'A Loom model has four layers. Start with what the system must do, then describe the parts that do it.'
-            : 'Loom organizes a model in four RFLP layers, traced end to end from requirements to physical parts. Use the + buttons or the command palette to add elements.')),
+            : `Loom organizes this model as ${frameworkOf(model).name} (change it in the project menu), traced end to end from what is needed to what gets built. Use the + buttons or the command palette to add elements.`)),
       h('div', { class: 'lgrid' }, layerCards)));
   }
 
@@ -699,7 +722,7 @@ export function mountWorkspace(root, ctx) {
     const st = settings.get();
     status.replaceChildren(...[
       h('span', { class: 'save-state ' + saveState }, h('span', { class: 'ok-dot' }), saveState === 'saved' ? 'Saved on this device' : saveState === 'saving' ? 'Saving…' : 'Not saved'),
-      h('span', {}, `${model.elementCount() - 5} elements`),
+      h('span', {}, `${(model.elementCount() - 1 - model.sets().length)} elements`),
       folderPill(),
       problemsPill(),
       h('span', { class: 'grow' }),
@@ -758,7 +781,9 @@ export function mountWorkspace(root, ctx) {
     canNew: (kind) => ownerFor(kind) !== null,
     /** @param {string} kind */
     newElement(kind) { const o = ownerFor(kind); if (o) create(kind, o); },
-    rename() { if (selected) { const e = model.get(selected); if (e && !e.layer && e.owner) tree.startRename(selected); } },
+    rename() { if (selected) { const e = model.get(selected); if (e && e.owner) tree.startRename(selected); } },
+    /** Can the selection be renamed (anything but the project root and relationships)? */
+    canRenameSelection: () => { const e = selected ? model.get(selected) : undefined; return !!e && !!e.owner && !isRel(e.kind); },
     /** Show or hide the selection's properties. */
     toggleProps,
     /** The project's settings, in the properties panel. */

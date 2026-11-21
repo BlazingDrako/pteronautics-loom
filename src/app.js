@@ -106,7 +106,7 @@ commands.add({
 // ---------- editing ----------
 commands.add({ id: 'edit.undo', title: 'Undo', group: 'Edit', keys: 'Mod+Z', enabled: () => !!ws?.model.canUndo(), run: () => ws?.model.undo() });
 commands.add({ id: 'edit.redo', title: 'Redo', group: 'Edit', keys: 'Mod+Shift+Z', enabled: () => !!ws?.model.canRedo(), run: () => ws?.model.redo() });
-commands.add({ id: 'element.rename', title: 'Rename the selected element', group: 'Edit', keys: 'F2', enabled: () => !!ws?.canEditSelection(), run: () => ws?.rename() });
+commands.add({ id: 'element.rename', title: 'Rename the selected element', group: 'Edit', keys: 'F2', enabled: () => !!ws?.canRenameSelection(), run: () => ws?.rename() });
 commands.add({ id: 'element.delete', title: 'Delete the selected element', group: 'Edit', keys: 'Delete', keywords: ['remove'], enabled: () => !!ws?.canEditSelection(), run: () => ws?.remove() });
 commands.add({ id: 'element.deselect', title: 'Clear the selection', group: 'Edit', keys: 'Escape', enabled: () => !!ws?.selected(), run: () => ws?.select(null) });
 for (const kind of Object.keys(ELEMENTS).filter((k) => !ELEMENTS[k].diagram)) {

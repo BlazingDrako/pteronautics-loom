@@ -40,6 +40,21 @@ The **command palette** (Mod+K) runs any command and finds any element by name. 
 with a shortcut shows it there; change shortcuts in Preferences (Mod+,). Preferences also have a
 **compact** density that fits more on the screen.
 
+### Frameworks and sets
+
+The top of the model is organized by a **framework**. **RFLP** (requirements, functional,
+logical, physical) is the default; **Arcadia (Capella)**, **MagicGrid (Cameo)**, **OOSEM** and
+the **SysML pillars** are the others. Pick one for a new project, or change it any time from the
+project menu (**Framework…**); switching is one step you can undo.
+
+Every framework has the same four **core sets** underneath (what is needed, what it must do,
+how it is organized, what gets built), so traces, the Systems V and coverage work the same; it
+names them in its own words, and some add sets of their own (Arcadia's End-Product Breakdown,
+MagicGrid's Parameters). You can rename any set, and add **sets of your own** from the model
+browser's **⋯** menu or the project menu (**New set**): top-level folders with a color (right-click
+one to change it), saved as their own `.sysml` files. What you put in your own sets works
+everywhere, but is not part of the trace between the core sets.
+
 ### The model browser
 
 - **Click** to select, **double-click** for properties (a diagram opens instead), **F2** to rename.

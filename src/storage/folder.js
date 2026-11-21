@@ -8,7 +8,7 @@
 // Every file is written in a stable order with one entry per line, so diffs and merges are small.
 import { createModel, ModelError } from '../model/model.js';
 import { restore } from '../model/serialize.js';
-import { LAYERS, isDiagram, isRel } from '../model/metamodel.js';
+import { LAYERS, FRAMEWORKS, isDiagram, isRel } from '../model/metamodel.js';
 import { newId } from '../model/ids.js';
 import { printModel, LAYER_FILES } from '../text/printer.js';
 import { parseLayer, buildSnapshot } from '../text/build.js';
@@ -58,7 +58,8 @@ export function stableJson(v, pad = '') {
 export function projectFiles(m, meta) {
   /** @type {Files} */
   const files = {};
-  for (const f of printModel(m)) files[f.path] = f.text;
+  const printed = printModel(m);
+  for (const f of printed) files[f.path] = f.text;
   const keys = keysOf(m);
   /** @type {Record<string, string>} */
   const ids = {};
@@ -71,6 +72,9 @@ export function projectFiles(m, meta) {
     format: FOLDER_FORMAT, version: FOLDER_VERSION, savedBy: `Pteronautics Loom ${VERSION}`,
     name: meta.name, description: meta.description || '', root: m.root().id,
     layers: Object.fromEntries(m.layers().map((l) => [/** @type {string} */ (l.layer), LAYER_FILES[/** @type {string} */ (l.layer)]])),
+    // sets of your own (their files), and the order every set is shown in
+    ...(printed.some((f) => !f.layer) ? { sets: printed.filter((f) => !f.layer).map((f) => f.path), order: printed.map((f) => f.path) } : {}),
+    ...(m.root().props.framework ? { framework: String(m.root().props.framework) } : {}),
     ...(m.root().props.validation ? { validation: validationOut(m.root().props.validation) } : {}),
   }) + '\n';
   files[IDS_FILE] = stableJson(ids) + '\n';
@@ -99,19 +103,16 @@ export function modelFromFiles(files) {
 
   // which file is which layer: what project.json says, else the usual file names
   // the layer files project.json names, or every .sysml file at the top when it names none
-  const listed = proj.layers && typeof proj.layers === 'object' ? Object.values(proj.layers).filter((f) => typeof f === 'string' && f in files) : [];
-  const sysml = (listed.length ? /** @type {string[]} */ (listed) : Object.keys(files).filter((p) => p.endsWith('.sysml') && !p.includes('/'))).sort();
+  const sysml = setFiles(files, proj);
   if (!sysml.length) throw new FileError('(folder)', 'There are no .sysml files here');
   /** @type {{ layer: string, path: string, node: import('../text/parser.js').Node }[]} */
   const parsed = [];
   for (const path of sysml) {
     let node;
     try { node = parseLayer(files[path]); } catch (e) { if (e instanceof TextError) throw new FileError(path, e.message, e.line, e.col); throw e; }
-    const lm = node.meta.find((x) => x.key === 'layer');
-    const byName = Object.entries(proj.layers || LAYER_FILES).find(([, f]) => f === path)?.[0];
-    const layer = typeof lm?.value === 'string' ? lm.value : byName;
-    if (!layer || !['r', 'f', 'l', 'p'].includes(layer)) throw new FileError(path, 'Loom cannot tell which RFLP layer this file is. Add @Loom { layer = "r"; } (or f, l, p) inside its package', node.line, node.col);
-    if (parsed.some((x) => x.layer === layer)) throw new FileError(path, `Two files are the ${LAYERS.find((l) => l.id === layer)?.name} layer`);
+    // a core set (its role, from its @Loom marker or its usual file name) or a set of your own
+    const layer = roleOf(node, path, proj);
+    if (layer && parsed.some((x) => x.layer === layer)) throw new FileError(path, `Two files are the ${LAYERS.find((l) => l.id === layer)?.name} core set`);
     parsed.push({ layer, path, node });
   }
 
@@ -119,15 +120,21 @@ export function modelFromFiles(files) {
   const name = typeof proj.name === 'string' && proj.name.trim() ? proj.name.trim().slice(0, 200) : 'Imported project';
   const rootId = typeof proj.root === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(proj.root) ? proj.root : newId();
   const skel = createModel({ empty: true });
+  const usedIds = new Set([rootId]);
+  const idFor = (/** @type {string} */ nm) => { const hinted = ids.get(`package:${nm}`); const id = hinted && !usedIds.has(hinted) ? hinted : newId(); usedIds.add(id); return id; };
   const layerEls = LAYERS.map((l) => {
     const p = parsed.find((x) => x.layer === l.id);
     const lname = p?.node.name || l.name;
-    const hinted = ids.get(`package:${lname}`);
-    return { id: hinted && hinted !== rootId ? hinted : newId(), kind: 'package', name: lname, owner: rootId, layer: l.id, props: { idPrefix: '', validation: '', doc: '' } };
+    return { id: idFor(lname), kind: 'package', name: lname, owner: rootId, layer: l.id, props: { idPrefix: '', validation: '', doc: '' }, path: p?.path || LAYER_FILES[l.id] };
   });
-  skel.loadRaw([{ id: rootId, kind: 'package', name, owner: null, props: { idPrefix: '', validation: validationIn(proj.validation), doc: '' } }, .../** @type {any[]} */ (layerEls)]);
+  const ownEls = parsed.filter((p) => !p.layer).map((p) => ({ id: idFor(p.node.name), kind: 'package', name: p.node.name, owner: rootId, props: { idPrefix: '', validation: '', doc: '' }, path: p.path }));
+  // every set, in the order they were shown (the core sets first when the order is not known)
+  const order = Array.isArray(proj.order) ? proj.order.filter((x) => typeof x === 'string') : [];
+  const all = [...layerEls, ...ownEls].map((e, i) => ({ e, at: order.includes(e.path) ? order.indexOf(e.path) : order.length + i }));
+  all.sort((a, b) => a.at - b.at);
+  skel.loadRaw([{ id: rootId, kind: 'package', name, owner: null, props: { idPrefix: '', validation: validationIn(proj.validation), framework: frameworkIn(proj.framework), doc: '' } }, .../** @type {any[]} */ (all.map(({ e }) => { const { path: _p, ...rest } = e; return rest; }))]);
 
-  const inputs = parsed.map((p) => ({ layerId: /** @type {string} */ (layerEls.find((l) => l.layer === p.layer)?.id), node: p.node, path: p.path }));
+  const inputs = parsed.map((p) => ({ layerId: /** @type {string} */ ((p.layer ? layerEls.find((l) => l.layer === p.layer) : ownEls.find((o) => o.path === p.path))?.id), node: p.node, path: p.path }));
   let snap;
   try {
     snap = buildSnapshot(skel, inputs, { hint: (k) => ids.get(k), layouts: layouts && typeof layouts === 'object' ? layouts : {} });
@@ -149,28 +156,51 @@ export function snapshotFromFiles(m, files) {
   const proj = readJson(files, PROJECT_FILE) || {};
   const ids = new Map(Object.entries(readJson(files, IDS_FILE) || {}));
   const layouts = readJson(files, LAYOUT_FILE) || {};
-  const listed = proj.layers && typeof proj.layers === 'object' ? Object.values(proj.layers).filter((f) => typeof f === 'string' && f in files) : [];
-  const sysml = (listed.length ? /** @type {string[]} */ (listed) : Object.keys(files).filter((p) => p.endsWith('.sysml') && !p.includes('/'))).sort();
+  const sysml = setFiles(files, proj);
   const inputs = [];
   for (const path of sysml) {
     let node;
     try { node = parseLayer(files[path]); } catch (e) { if (e instanceof TextError) throw new FileError(path, e.message, e.line, e.col); throw e; }
-    const lm = node.meta.find((x) => x.key === 'layer');
-    const layer = typeof lm?.value === 'string' ? lm.value : Object.entries(proj.layers || LAYER_FILES).find(([, f]) => f === path)?.[0];
-    const live = m.layers().find((l) => l.layer === layer);
-    if (!live) throw new FileError(path, 'Loom cannot tell which RFLP layer this file is. Add @Loom { layer = "r"; } (or f, l, p) inside its package', node.line, node.col);
+    const layer = roleOf(node, path, proj);
+    // a core set by its role; a set of your own by its saved id, else its name
+    const live = layer ? m.layers().find((l) => l.layer === layer) : m.sets().find((s) => !s.layer && (s.id === ids.get(`package:${node.name}`) || s.name === node.name));
+    if (!live) throw new FileError(path, `“${node.name}” is a set Loom does not have yet. Open the folder again (Home → Open folder) to bring in new sets.`, node.line, node.col);
     inputs.push({ layerId: live.id, node, path });
   }
   try {
     const snap = buildSnapshot(m, inputs, { hint: (k) => /** @type {string | undefined} */ (ids.get(k)), layouts, preferLayouts: true });
     if (typeof proj.name === 'string' && proj.name.trim()) snap.elements[0].name = proj.name.trim().slice(0, 200);
-    snap.elements[0].props = { ...snap.elements[0].props, validation: validationIn(proj.validation) };
+    snap.elements[0].props = { ...snap.elements[0].props, validation: validationIn(proj.validation), framework: frameworkIn(proj.framework) };
     return snap;
   } catch (e) {
     if (e instanceof TextError) throw new FileError(/** @type {any} */ (e).file || sysml[0], e.message, e.line, e.col);
     throw e;
   }
 }
+
+/**
+ * The .sysml files that are sets: what project.json lists (the core sets and your own), or
+ * every .sysml file at the top of the folder when it lists none.
+ * @param {Files} files @param {any} proj
+ */
+function setFiles(files, proj) {
+  const listed = [
+    ...(proj.layers && typeof proj.layers === 'object' ? Object.values(proj.layers) : []),
+    ...(Array.isArray(proj.sets) ? proj.sets : []),
+  ].filter((f) => typeof f === 'string' && f in files);
+  return (listed.length ? /** @type {string[]} */ ([...new Set(listed)]) : Object.keys(files).filter((p) => p.endsWith('.sysml') && !p.includes('/'))).sort();
+}
+/** A file's core-set role (from its @Loom marker, else its usual file name), or '' for a set of your own. @param {import('../text/parser.js').Node} node @param {string} path @param {any} proj */
+function roleOf(node, path, proj) {
+  const lm = node.meta.find((x) => x.key === 'layer');
+  if (typeof lm?.value === 'string') {
+    if (!['r', 'f', 'l', 'p'].includes(lm.value)) throw new FileError(path, `“${lm.value}” is not a core set: use r, f, l or p, or leave the marker out for a set of your own`, lm.line, lm.col);
+    return lm.value;
+  }
+  return Object.entries(proj.layers && typeof proj.layers === 'object' ? proj.layers : LAYER_FILES).find(([, f]) => f === path)?.[0] || '';
+}
+/** The framework a project.json names, if Loom knows it. @param {unknown} v */
+const frameworkIn = (v) => (typeof v === 'string' && FRAMEWORKS.some((f) => f.id === v) && v !== 'rflp' ? v : '');
 
 /** Only the files with these paths. @param {Files} files @param {string[]} paths @returns {Files} */
 export const pick = (files, paths) => Object.fromEntries(paths.filter((p) => p in files).map((p) => [p, files[p]]));

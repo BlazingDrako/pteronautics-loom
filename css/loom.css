@@ -1265,3 +1265,20 @@ select.field[size] { height: auto; padding: 4px; margin-top: 8px; }
 /* two-finger swipes over a diagram pan it, instead of going back a page; elsewhere they still navigate */
 html:has(.dstage:hover), html:has(.sdstage:hover), html:has(.dstage:hover) body, html:has(.sdstage:hover) body { overscroll-behavior-x: none; }
 .dstage, .sdstage, .tscroll, .mscroll { overscroll-behavior: contain; }
+
+/* ---------- the framework dialog ---------- */
+.fw-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; margin: 12px 0; }
+.fw-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-sunk); text-align: left; cursor: pointer; color: var(--text-2); min-width: 0; }
+.fw-card:hover { border-color: var(--border-strong); }
+.fw-card[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+.fw-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fw-head b { color: var(--text); font-size: 13.5px; }
+.fw-head .pill { font-size: 10px; padding: 0 7px; }
+.fw-blurb { font-size: 12px; line-height: 1.4; }
+.fw-sets { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.fw-set { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-set i { width: 8px; height: 8px; border-radius: 3px; flex: none; background: var(--text-3); }
+.fw-set.role-r i { background: var(--layer-r); } .fw-set.role-f i { background: var(--layer-f); } .fw-set.role-l i { background: var(--layer-l); } .fw-set.role-p i { background: var(--layer-p); }
+.fw-set.own { color: var(--text-2); }
+.fw-set.own i { background: none; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.layer-dot.own { border-radius: 99px; }

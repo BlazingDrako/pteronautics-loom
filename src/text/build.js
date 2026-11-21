@@ -71,7 +71,7 @@ export function buildSnapshot(base, inputs, o = {}) {
   // take out everything inside each replaced layer
   for (const { layerId } of inputs) {
     const layer = els.get(layerId);
-    if (!layer || layer.owner !== rootId) throw new ModelError('Text can only replace a whole RFLP layer');
+    if (!layer || layer.owner !== rootId) throw new ModelError('Text can only replace a whole set at the top of the model');
     const drop = (/** @type {string} */ id) => { for (const c of kids.get(id) || []) { old.set(c, /** @type {Element} */ (els.get(c))); replaced.add(c); used.delete(c); drop(c); els.delete(c); kids.delete(c); } };
     drop(layerId);
     kids.set(layerId, []);

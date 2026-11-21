@@ -92,7 +92,8 @@ export function buildDocument(m, o = {}) {
   if (want.has('summary')) {
     const cov = coverage(m);
     const tiles = /** @type {[string, { total: number, done: number }][]} */ ([['Requirements satisfied', cov.satisfied], ['Requirements verified', cov.verified], ['Verification passed', cov.passed], ['Functions allocated', cov.functions], ['Logical blocks realized', cov.logical], ['Physical blocks traced', cov.physical]]);
-    const counts = LAYERS.map((l) => { const lp = layer(l.id); let k = 0; const w = (/** @type {string} */ x) => { for (const c of m.children(x)) { k++; w(c.id); } }; if (lp) w(lp.id); return `<li><b>${k}</b> ${esc(l.name.toLowerCase())}</li>`; }).join('');
+    // every set at the top, by its name in this project (the core sets and your own)
+    const counts = m.sets().map((lp) => { let k = 0; const w = (/** @type {string} */ x) => { for (const c of m.children(x)) { k++; w(c.id); } }; w(lp.id); return `<li><b>${k}</b> in ${esc(lp.name)}</li>`; }).join('');
     body.push(h(2, 'Summary'),
       para(m.root().props.doc || ''),
       `<ul class="counts">${counts}<li><b>${m.count() - m.elementCount()}</b> relationships</li></ul>`,

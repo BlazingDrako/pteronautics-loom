@@ -49,10 +49,12 @@ export const ELEMENTS = {
     owners: ['package'],
     props: {
       idPrefix: { type: 'text', label: 'Requirement ID prefix', default: '', placeholder: 'REQ-' },
+      color: { type: 'enum', label: 'Color in the model browser', options: ['—', 'blue', 'teal', 'green', 'amber', 'coral', 'pink', 'violet', 'slate'], default: '—' },
       validation: { type: 'text', label: 'Validation', default: '', hidden: true },
+      framework: { type: 'text', label: 'Framework', default: '', hidden: true },
       doc: DOC,
     },
-    help: 'Groups model elements. Every element lives in exactly one package or element. A requirement ID prefix here numbers the requirements created inside it.',
+    help: 'Groups model elements. Every element lives in exactly one package or element. A requirement ID prefix here numbers the requirements created inside it. A package at the top of the model is a set of its own, beside the framework\'s (RFLP\'s requirements, functional, logical and physical).',
   },
   requirement: {
     names: { sysml: 'Requirement', v2: 'requirement', guided: 'Requirement' }, abbr: 'req', defaultLayer: 'r',
@@ -483,6 +485,44 @@ export const LAYERS = /** @type {const} */ ([
   { id: 'l', name: 'Logical', note: 'How it is organized', color: 'var(--layer-l)' },
   { id: 'p', name: 'Physical', note: 'What gets built', color: 'var(--layer-p)' },
 ]);
+
+/**
+ * Frameworks: how a model's top level is organized. Every framework has the same four core
+ * sets underneath (their roles: what is needed, what it does, how it is organized, what gets
+ * built), which the trace, the Systems V and coverage work from; a framework names them in its
+ * own words and may add sets of its own. RFLP is the default. You can rename any set and add
+ * your own beside them.
+ * @typedef {{ id: string, name: string, blurb: string, sets: Record<'r' | 'f' | 'l' | 'p', { name: string, note: string }>, extra?: { name: string, note: string, color: string }[] }} Framework
+ * @type {Framework[]}
+ */
+export const FRAMEWORKS = [
+  {
+    id: 'rflp', name: 'RFLP', blurb: 'Requirements, Functional, Logical, Physical: the classic MBSE breakdown, traced end to end.',
+    sets: { r: { name: 'Requirements', note: 'What is needed' }, f: { name: 'Functional', note: 'What it must do' }, l: { name: 'Logical', note: 'How it is organized' }, p: { name: 'Physical', note: 'What gets built' } },
+  },
+  {
+    id: 'arcadia', name: 'Arcadia (Capella)', blurb: 'Operational analysis, system analysis, logical and physical architecture, and the end-product breakdown.',
+    sets: { r: { name: 'Operational Analysis', note: 'What the users need to achieve' }, f: { name: 'System Analysis', note: 'What the system must do for them' }, l: { name: 'Logical Architecture', note: 'How the system works, independent of technology' }, p: { name: 'Physical Architecture', note: 'How it is built' } },
+    extra: [{ name: 'End-Product Breakdown', note: 'The configuration items that get delivered', color: 'slate' }],
+  },
+  {
+    id: 'magicgrid', name: 'MagicGrid (Cameo)', blurb: 'Requirements, behavior, structure and implementation, with parameters beside them, as in Cameo\'s MagicGrid.',
+    sets: { r: { name: 'Requirements', note: 'Stakeholder needs and system requirements' }, f: { name: 'Behavior', note: 'Use cases, activities, states and scenarios' }, l: { name: 'Structure', note: 'The system, its subsystems and interfaces' }, p: { name: 'Implementation', note: 'The parts that realize the structure' } },
+    extra: [{ name: 'Parameters', note: 'Measures of effectiveness and the equations behind them', color: 'amber' }],
+  },
+  {
+    id: 'oosem', name: 'OOSEM', blurb: 'The object-oriented systems engineering method: needs, requirements, logical and allocated architecture, and verification.',
+    sets: { r: { name: 'Stakeholder Needs', note: 'Mission, stakeholders and their needs' }, f: { name: 'System Requirements', note: 'Black-box behavior and requirements' }, l: { name: 'Logical Architecture', note: 'Logical components and interactions' }, p: { name: 'Allocated Architecture', note: 'Physical components, allocated' } },
+    extra: [{ name: 'Verification', note: 'Test cases and their results', color: 'green' }],
+  },
+  {
+    id: 'pillars', name: 'SysML pillars', blurb: 'The four pillars of SysML: requirements, behavior, structure and parametrics.',
+    sets: { r: { name: 'Requirements', note: 'What is needed' }, f: { name: 'Behavior', note: 'What it does' }, l: { name: 'Structure', note: 'What it is made of' }, p: { name: 'Parts', note: 'What gets bought or built' } },
+    extra: [{ name: 'Parametrics', note: 'Equations and analyses', color: 'amber' }],
+  },
+];
+/** @param {string} id */
+export const frameworkById = (id) => FRAMEWORKS.find((f) => f.id === id) || FRAMEWORKS[0];
 
 /** Kinds that are plumbing of a diagram rather than things to trace to. */
 export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment', 'binding', 'profile', 'stereotype'];

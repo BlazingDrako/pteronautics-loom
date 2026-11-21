@@ -225,8 +225,10 @@ export function createModel(opts = {}) {
     relsFrom: (id) => [...(from.get(id) || [])].map((r) => /** @type {Element} */ (els.get(r))),
     /** Relationships whose target is `id`. @param {string} id @returns {Element[]} */
     relsTo: (id) => [...(to.get(id) || [])].map((r) => /** @type {Element} */ (els.get(r))),
-    /** The layer packages, in R F L P order. */
+    /** The four core sets (the framework's layer packages), in R F L P order. */
     layers: () => LAYERS.map((l) => api.children(rootId).find((c) => c.layer === l.id)).filter((x) => !!x),
+    /** Every set at the top of the model, in the order shown: the core sets and your own. */
+    sets: () => api.children(rootId).filter((c) => c.kind === 'package'),
     /** Owner chain from the root down to (not including) the element. @param {string} id */
     path(id) {
       /** @type {Element[]} */
@@ -252,7 +254,9 @@ export function createModel(opts = {}) {
     /** Can `id` be moved into `ownerId`? @param {string} id @param {string} ownerId */
     canMove(id, ownerId) {
       const e = els.get(id), o = els.get(ownerId);
-      if (!e || !o || isRel(e.kind) || !e.owner || e.layer) return false;
+      if (!e || !o || isRel(e.kind) || !e.owner) return false;
+      if (e.layer && ownerId !== e.owner) return false; // a core set can be reordered, never moved inside something
+      if (ownerId === rootId && e.kind !== 'package') return false; // only sets (packages) sit at the top
       if (api.isWithin(ownerId, id)) return false; // no cycles
       return canOwnKind(o.kind, e.kind);
     },
@@ -401,7 +405,7 @@ export function createModel(opts = {}) {
     remove(id) {
       const e = must(id);
       if (!e.owner && !isRel(e.kind)) throw new ModelError('The project root cannot be deleted');
-      if (e.layer) throw new ModelError('The RFLP layer packages cannot be deleted');
+      if (e.layer) throw new ModelError(`${e.name} is one of the framework's core sets and cannot be deleted; rename it instead`);
       /** @type {string[]} */
       const doomed = [];
       const walk = (/** @type {string} */ x) => { for (const c of kids.get(x) || []) walk(c); doomed.push(x); };

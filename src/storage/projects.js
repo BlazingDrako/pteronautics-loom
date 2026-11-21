@@ -6,6 +6,7 @@ import { createModel } from '../model/model.js';
 import { snapshot, restore, toFile, fromFile, fileNameFor } from '../model/serialize.js';
 import { isRel } from '../model/metamodel.js';
 import { sampleById } from '../model/samples.js';
+import { applyFramework } from '../model/framework.js';
 import { projectFiles, modelFromFiles, signature } from './folder.js';
 import { zip, unzip, isZip, textFiles } from './zip.js';
 
@@ -13,7 +14,7 @@ import { zip, unzip, isZip, textFiles } from './zip.js';
  * @typedef {{
  *   id: string, name: string, description: string,
  *   created: string, modified: string, opened: string,
- *   stats: { elements: number, relationships: number, layers: Record<string, number> },
+ *   stats: { elements: number, relationships: number, layers: Record<string, number>, names?: Record<string, string> },
  *   folder?: { name: string, sig: string, synced: string },  // linked to a folder on disk
  * }} ProjectMeta
  * @typedef {'meta' | 'model' | 'handles'} StoreName
@@ -88,7 +89,9 @@ export function statsOf(m) {
     const l = m.layerOf(e.id);
     if (l) layers[l]++;
   }
-  return { elements, relationships, layers };
+  // the core sets' names in this project's framework, for the card
+  const names = Object.fromEntries(m.layers().map((l) => [/** @type {string} */ (l.layer), l.name]));
+  return { elements, relationships, layers, names };
 }
 
 /** @param {Backend} backend */
@@ -129,10 +132,12 @@ export function createProjectStore(backend) {
       const all = /** @type {ProjectMeta[]} */ (await backend.all('meta'));
       return all.sort((a, b) => (b.opened || b.modified).localeCompare(a.opened || a.modified));
     },
-    /** @param {{ name: string, description?: string, template?: string }} o  template: 'blank' or a sample's id */
+    /** @param {{ name: string, description?: string, template?: string, framework?: string }} o  template: 'blank' or a sample's id; framework: a FRAMEWORKS id (RFLP when left out) */
     async create(o) {
       const m = createModel();
       if (o.template && o.template !== 'blank') sampleById(o.template)?.build(m);
+      // another framework than RFLP: its names for the core sets, and its own sets
+      if (o.framework && o.framework !== 'rflp') { applyFramework(m, o.framework); m.clear(); }
       return add(await freeName(o.name.trim() || 'Untitled project'), o.description || '', m);
     },
     /** Open a project: its record and a live model. @param {string} id */

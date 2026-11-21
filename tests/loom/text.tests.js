@@ -147,7 +147,9 @@ export async function textTests(log) {
   const broken = { ...pf, 'logical.sysml': pf['logical.sysml'].replace("satisfy 'Usable energy';", "satisfy 'Useable energy';") };
   const fe = anyError(() => modelFromFiles(broken));
   log('A problem names its file and line', fe instanceof FileError && fe.file === 'logical.sysml' && !!fe.line && /logical\.sysml, line \d+/.test(fe.message), fe?.message);
-  log('A file of the wrong layer, or none, is explained', /which RFLP layer/.test(anyError(() => modelFromFiles({ 'notes.sysml': 'package Notes { }' }))?.message || ''));
+  const own = modelFromFiles({ 'notes.sysml': 'package Notes { }' });
+  log('A file that is not a core set opens as a set of your own, beside the four core sets', own.model.sets().some((x) => x.name === 'Notes' && !x.layer) && own.model.layers().length === 4);
+  log('A core-set marker Loom does not know is explained', /not a core set/.test(anyError(() => modelFromFiles({ 'notes.sysml': 'package Notes { @Loom { layer = "x"; } }' }))?.message || ''));
   // changes made outside Loom (git pull) come in by name, keeping ids and layouts
   const edited = { ...pf, 'logical.sysml': pf['logical.sysml'].replace('part def Motor {', 'part def Motor {\n        attribute kv = 170;') };
   const kv0 = k.version();

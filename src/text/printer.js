@@ -197,12 +197,22 @@ export function printPackage(m, pkgId) {
   return { text: lines.join('\n') + '\n', ranges };
 }
 
+/** A file name for a set of your own: its name, in lower case with dashes. @param {string} name */
+const slug = (name) => name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'set';
+
 /**
- * The whole model as one file per RFLP layer.
+ * The whole model as one file per set: the four core sets (requirements.sysml, functional.sysml,
+ * logical.sysml, physical.sysml, whatever the framework calls them), then each set of your own
+ * (named for it), in the order they are shown. `layer` is the core set's role, or '' for yours.
  * @param {Model} m @returns {{ layer: string, id: string, path: string, text: string }[]}
  */
 export function printModel(m) {
-  return m.layers().map((l) => ({ layer: /** @type {string} */ (l.layer), id: l.id, path: LAYER_FILES[/** @type {string} */ (l.layer)], text: printPackage(m, l.id).text }));
+  const taken = new Set(Object.values(LAYER_FILES));
+  return m.sets().map((s) => {
+    let path = s.layer ? LAYER_FILES[/** @type {string} */ (s.layer)] : `${slug(s.name)}.sysml`;
+    if (!s.layer) { let i = 2; const base = path.slice(0, -6); while (taken.has(path)) path = `${base}-${i++}.sysml`; taken.add(path); }
+    return { layer: /** @type {string} */ (s.layer || ''), id: s.id, path, text: printPackage(m, s.id).text };
+  });
 }
 
 export { LAYERS, RELATIONSHIPS };

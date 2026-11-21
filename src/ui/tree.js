@@ -14,6 +14,7 @@ import { popupMenu } from './menu.js';
 import { ELEMENTS, LAYERS, kindName, childKinds, isRel, isDiagram } from '../model/metamodel.js';
 import { stereoIcon, stereoNames } from '../custom/stereo.js';
 import { toolIcon } from '../canvas/tools.js';
+import { SET_HUE } from '../model/framework.js';
 import { worst } from '../validate/engine.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
@@ -34,10 +35,13 @@ import { worst } from '../validate/engine.js';
  *   library?: (id: string) => void,
  *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  *   showLines?: () => boolean,
+ *   setColor?: (id: string, color: string) => void,
  * }} TreeCtx
  */
 
 const LAYER_COLOR = Object.fromEntries(LAYERS.map((l) => [l.id, l.color]));
+/** The colors a set of your own can have. */
+const FILL_HUE = SET_HUE;
 /** The icon a diagram, table or matrix shows in the browser, so views stand apart from elements. */
 const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
 /** Elements drawn as lines on diagrams: listed in the browser only when asked for. */
@@ -74,7 +78,9 @@ export function createTree(ctx) {
     const open = ctx.expanded.has(e.id) || (!!keep && kids.length > 0);
     const sel = ctx.selected() === e.id;
     const layer = m.layerOf(e.id);
-    const isLayer = !!e.layer;
+    // a set at the top of the model (a core set or one of your own) heads its own section
+    const isLayer = e.owner === m.root().id;
+    const setColor = e.layer ? LAYER_COLOR[e.layer] : FILL_HUE[String(e.props.color)] || FILL_HUE.slate;
     const stereo = stereoNames(m, e.id);
     const row = h('div', {
       class: 'ti' + (sel ? ' sel' : '') + (isLayer ? ' ti-layer' : '') + (isDiagram(e.kind) ? ' ti-diagram' : ''),
@@ -87,10 +93,10 @@ export function createTree(ctx) {
     },
     h('span', { class: 'twisty' + (kids.length ? '' : ' none'), 'aria-hidden': 'true', 'data-twisty': '' }, kids.length ? icon(open ? 'chevDown' : 'chevRight') : null),
     isLayer
-      ? h('span', { class: 'layer-dot', style: { background: LAYER_COLOR[/** @type {string} */ (e.layer)] } })
+      ? h('span', { class: 'layer-dot' + (e.layer ? '' : ' own'), style: { background: setColor }, title: e.layer ? undefined : 'A set of your own' })
       : isDiagram(e.kind)
-        ? h('span', { class: 'ti-dicon', title: kindName(e.kind, n), style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, toolIcon(DIAGRAM_ICON[e.kind] || 'block'))
-        : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, ELEMENTS[e.kind].abbr),
+        ? h('span', { class: 'ti-dicon', title: kindName(e.kind, n), style: { color: layer ? LAYER_COLOR[layer] : ownSetColor(e) } }, toolIcon(DIAGRAM_ICON[e.kind] || 'block'))
+        : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : ownSetColor(e) } }, ELEMENTS[e.kind].abbr),
     renaming === e.id ? renameInput(e) : h('span', { class: 'ti-name' + (hits.has(e.id) ? ' hit' : '') }, stereoIcon(m, e.id) ? h('span', { class: 'ti-icon', 'aria-hidden': 'true' }, stereoIcon(m, e.id)) : null, e.name),
     (() => {
       // the worst problem on this element
@@ -104,6 +110,14 @@ export function createTree(ctx) {
     const out = [row];
     if (open) for (const k of kids) out.push(...rows(k, depth + 1));
     return out;
+  }
+
+  /** The color of the set of your own an element is in (or the plain text color). @param {Element} e */
+  function ownSetColor(e) {
+    const m = ctx.model, rootId = m.root().id;
+    let x = e;
+    while (x.owner && x.owner !== rootId) { const o = m.get(x.owner); if (!o) break; x = o; }
+    return x.owner === rootId && !x.layer ? FILL_HUE[String(x.props.color)] || FILL_HUE.slate : 'var(--text-2)';
   }
 
   /** @param {string} id */
@@ -143,10 +157,12 @@ export function createTree(ctx) {
     popupMenu(row, [
       diagram ? { label: 'Open', hint: 'Enter', run: () => ctx.open(e.id) } : null,
       ctx.openProps ? { label: 'Properties', hint: 'Double-click', run: () => ctx.openProps?.(e.id) } : null,
-      e.layer ? null : { label: 'Rename', hint: 'F2', run: () => startRename(e.id) },
+      { label: 'Rename', hint: 'F2', run: () => startRename(e.id) },
       canAdd ? { label: 'Add inside…', run: () => addMenu(row, e, at) } : null,
-      ctx.library && !e.layer ? { label: `About ${kindName(e.kind, ctx.notation()).toLowerCase()}s`, hint: '?', run: () => ctx.library?.(e.id) } : null,
+      ctx.library && e.owner !== ctx.model.root().id ? { label: `About ${kindName(e.kind, ctx.notation()).toLowerCase()}s`, hint: '?', run: () => ctx.library?.(e.id) } : null,
       ...(ctx.model.children(e.id).length ? [/** @type {const} */ ('sep'), { label: 'Expand all inside', run: () => { expandAll(e.id, true); render(); } }, { label: 'Collapse all inside', run: () => { expandAll(e.id, false); render(); } }] : []),
+      // a set of your own: its color in the browser
+      ...(e.owner === ctx.model.root().id && !e.layer && ctx.setColor ? [/** @type {const} */ ('sep'), { label: 'Color…', run: () => popupMenu(row, Object.keys(FILL_HUE).map((c) => ({ label: c[0].toUpperCase() + c.slice(1), swatch: c, run: () => ctx.setColor?.(e.id, c) })), { title: `${e.name}: color`, at }) }] : []),
       ...(e.layer ? [] : [/** @type {const} */ ('sep'), { label: 'Delete', hint: 'Del', danger: true, run: () => ctx.remove(e.id) }]),
     ].filter((x) => x !== null), { title: e.name, at });
   }
@@ -162,7 +178,7 @@ export function createTree(ctx) {
   function toggle(id) { if (ctx.expanded.has(id)) ctx.expanded.delete(id); else ctx.expanded.add(id); render(); focusSelected(); }
 
   /** @param {string} id */
-  function startRename(id) { const e = ctx.model.get(id); if (!e || e.layer || !e.owner) return; renaming = id; ctx.select(id); render(); }
+  function startRename(id) { const e = ctx.model.get(id); if (!e || !e.owner) return; renaming = id; ctx.select(id); render(); }
 
   function focusSelected() {
     const id = ctx.selected();
@@ -194,7 +210,7 @@ export function createTree(ctx) {
     if (!hit || t.closest('[data-twisty], [data-add]')) return;
     ev.preventDefault();
     if (isDiagram(hit.e.kind)) ctx.open(hit.e.id);
-    else if (hit.e.layer) toggle(hit.e.id);
+    else if (hit.e.owner === ctx.model.root().id) toggle(hit.e.id);
     else if (ctx.openProps) ctx.openProps(hit.e.id);
     else startRename(hit.e.id);
   });
@@ -223,7 +239,7 @@ export function createTree(ctx) {
     const t = /** @type {Element} */ (ev.target);
     if (t.closest('[data-twisty], [data-add], input')) return;
     const hit = rowOf(t);
-    if (!hit || hit.e.layer) return;
+    if (!hit) return;
     drag = { id: hit.e.id, x: ev.clientX, y: ev.clientY, pointer: ev.pointerId, started: false };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
@@ -285,7 +301,7 @@ export function createTree(ctx) {
     const f = (y - r.top) / r.height;
     const canInside = m.canMove(d.id, hit.e.id);
     const owner = hit.e.owner ? m.get(hit.e.owner) : undefined;
-    const canBeside = !hit.e.layer && !!owner && m.canMove(d.id, owner.id);
+    const canBeside = !!owner && m.canMove(d.id, owner.id);
     /** @type {'inside' | 'before' | 'after' | null} */
     let kind = null;
     if (canBeside && (f < 0.28 || (!canInside && f < 0.5))) kind = 'before';
@@ -379,7 +395,7 @@ export function createTree(ctx) {
     const go = (/** @type {string | undefined} */ id) => { if (id) { ctx.select(id); focusSelected(); } };
     if (ev.altKey) {
       // Alt+↑ / Alt+↓: move the selection among its siblings
-      if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && e?.owner && !e.layer) {
+      if ((ev.key === 'ArrowUp' || ev.key === 'ArrowDown') && e?.owner) {
         ev.preventDefault(); ev.stopPropagation();
         const sibs = ctx.model.children(e.owner).map((c) => c.id);
         const at = sibs.indexOf(e.id) + (ev.key === 'ArrowUp' ? -1 : 1);
@@ -405,11 +421,11 @@ export function createTree(ctx) {
         if (!e) return;
         ev.preventDefault();
         if (isDiagram(e.kind)) ctx.open(e.id);
-        else if (e.layer) toggle(e.id);
+        else if (e.owner === ctx.model.root().id) toggle(e.id);
         else if (ctx.openProps) ctx.openProps(e.id);
         else startRename(e.id);
         break;
-      case 'F2': if (e && !e.layer) { ev.preventDefault(); startRename(e.id); } break;
+      case 'F2': if (e) { ev.preventDefault(); startRename(e.id); } break;
       case 'ContextMenu': if (e) { ev.preventDefault(); const row = /** @type {HTMLElement} */ (el.querySelector(`[data-id="${e.id}"]`)); const r = row.getBoundingClientRect(); contextMenu(row, e, { x: r.left + 24, y: r.bottom }); } break;
       default: return;
     }
@@ -431,7 +447,7 @@ export function createTree(ctx) {
     const sel = ctx.selected();
     // (only when the selection changes, so you can still fold a folder with the selection inside)
     if (sel !== revealed) { revealed = sel; if (sel && m.get(sel) && !isRel(/** @type {Element} */ (m.get(sel)).kind) && !keep) for (const a of m.path(sel)) ctx.expanded.add(a.id); }
-    const layers = keep ? m.layers().filter((l) => keep?.has(l.id)) : m.layers();
+    const layers = keep ? m.sets().filter((l) => keep?.has(l.id)) : m.sets();
     el.replaceChildren(...layers.flatMap((l) => rows(l, 0)), ...(keep && !hits.size ? [h('div', { class: 'tree-empty' }, `Nothing named “${filter}”`)] : []), marker);
     marker.hidden = true;
     if (hadFocus && !renaming) focusSelected();
@@ -439,7 +455,8 @@ export function createTree(ctx) {
 
   /** Fold everything except the layers. */
   function collapseAll() {
-    for (const id of [...ctx.expanded]) if (!ctx.model.get(id)?.layer) ctx.expanded.delete(id);
+    const rootId = ctx.model.root().id;
+    for (const id of [...ctx.expanded]) if (ctx.model.get(id)?.owner !== rootId) ctx.expanded.delete(id);
     render();
   }
 
@@ -449,7 +466,7 @@ export function createTree(ctx) {
     keep = new Set(); hits = new Set();
     const m = ctx.model;
     for (const e of m.all()) {
-      if (isRel(e.kind) || !e.owner || e.layer || (!ctx.showLines?.() && LINE_KINDS.has(e.kind))) continue;
+      if (isRel(e.kind) || !e.owner || e.owner === m.root().id || (!ctx.showLines?.() && LINE_KINDS.has(e.kind))) continue;
       if (!e.name.toLowerCase().includes(q)) continue;
       hits.add(e.id); keep.add(e.id);
       for (const a of m.path(e.id)) keep.add(a.id);

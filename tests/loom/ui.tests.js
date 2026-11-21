@@ -12,6 +12,9 @@ import { projectFiles, modelFromFiles } from '../../src/storage/folder.js';
 import { printModel } from '../../src/text/printer.js';
 import { parseLayer, buildSnapshot, applySnapshot } from '../../src/text/build.js';
 import { shapeRoute, moveSegment } from '../../src/canvas/lines.js';
+import { applyFramework, frameworkOf, addSet, roleName } from '../../src/model/framework.js';
+import { FRAMEWORKS } from '../../src/model/metamodel.js';
+import { ModelError } from '../../src/model/model.js';
 
 const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 /** @param {Element | null | undefined} el */
@@ -54,6 +57,39 @@ export async function uiTests(log) {
   log('Moving a straight line adds a short stub at each end', firstSeg.length === 4 && square(firstSeg) && firstSeg[1].y === 40 && firstSeg[0].y === 0 && firstSeg[3].y === 0);
   const reshaped = shapeRoute([{ x: 0, y: 0 }, { x: 0, y: 30 }, { x: 90, y: 30 }], { pts: [[40, 60], [40, 90]] });
   log('Bends kept by hand join the ends square, wherever the boxes have moved', square(reshaped) && reshaped[0].x === 0 && reshaped[reshaped.length - 1].x === 90);
+
+  // ---------- frameworks and sets of your own ----------
+  const fm = createModel(); buildKestrel(fm);
+  log('Projects start as RFLP', frameworkOf(fm).id === 'rflp' && fm.layers().map((l) => l.name).join() === 'Requirements,Functional,Logical,Physical');
+  log('There are several frameworks: RFLP first, Arcadia, MagicGrid, OOSEM, the SysML pillars', FRAMEWORKS[0].id === 'rflp' && ['arcadia', 'magicgrid', 'oosem', 'pillars'].every((id) => FRAMEWORKS.some((f) => f.id === id)));
+  const counts = () => fm.layers().map((l) => fm.children(l.id).length).join();
+  const before = counts();
+  applyFramework(fm, 'arcadia');
+  log('A framework renames the four core sets in its own words and adds its own sets', fm.layers().map((l) => l.name).join() === 'Operational Analysis,System Analysis,Logical Architecture,Physical Architecture' && fm.sets().some((x) => x.name === 'End-Product Breakdown' && !x.layer) && frameworkOf(fm).id === 'arcadia');
+  log('…and moves nothing: every core set holds what it held, with its role', counts() === before && fm.layerOf(/** @type {any} */ (fm.all().find((e) => e.name === 'Battery Pack')).id) === 'l' && roleName(fm, 'r') === 'Operational Analysis');
+  applyFramework(fm, 'magicgrid');
+  log('Switching again drops the last framework\'s own sets while they are empty', !fm.sets().some((x) => x.name === 'End-Product Breakdown') && fm.sets().some((x) => x.name === 'Parameters'));
+  fm.undo(); fm.undo();
+  log('Each switch is one undoable step', frameworkOf(fm).id === 'rflp' && fm.sets().length === 4 && fm.layers()[0].name === 'Requirements');
+  let own = '';
+  fm.transact('Set', (tx) => { own = addSet(fm, tx, 'Verification & Validation', 'green'); tx.create('testCase', { owner: own, name: 'Drop test' }); });
+  log('You can add a set of your own at the top, with a color', fm.sets().some((x) => x.id === own && x.props.color === 'green') && fm.children(own).length === 1);
+  log('What is in a set of your own has no RFLP role (it stays out of the trace)', !fm.layerOf(/** @type {any} */ (fm.all().find((e) => e.name === 'Drop test')).id));
+  log('Core sets can be renamed but not deleted; sets of your own can be both', (() => { try { fm.transact('Del', (tx) => tx.remove(fm.layers()[0].id)); return false; } catch (e) { return e instanceof ModelError; } })() && (() => { fm.transact('Ren', (tx) => tx.rename(fm.layers()[0].id, 'Needs')); return fm.layers()[0].name === 'Needs' && fm.layers()[0].layer === 'r'; })());
+  fm.transact('Order', (tx) => tx.move(own, fm.root().id, 1));
+  log('Sets can be put in any order; only packages sit at the top', fm.sets()[1].id === own && !fm.canMove(/** @type {any} */ (fm.all().find((e) => e.name === 'Battery Pack')).id, fm.root().id));
+  fm.transact('Arcadia names', (tx) => tx.setProps(fm.root().id, { framework: 'oosem' }));
+  const ff = projectFiles(fm, { name: 'F', description: '' });
+  const ownFile = Object.keys(ff).find((f) => f.startsWith('verification'));
+  log('A set of your own is saved as its own .sysml file, with its color', !!ownFile && /package 'Verification & Validation'/.test(ff[/** @type {string} */ (ownFile)]) && /color = "green"/.test(ff[/** @type {string} */ (ownFile)]));
+  const fback = modelFromFiles(ff).model;
+  log('Project folders keep sets of your own, their order, the core sets\' names and the framework', fback.sets().map((x) => x.name).join() === fm.sets().map((x) => x.name).join() && fback.sets()[1].props.color === 'green' && fback.children(fback.sets()[1].id).length === 1 && frameworkOf(fback).id === 'oosem');
+  const fsnap = restore(JSON.parse(JSON.stringify(snapshot(fm))));
+  log('…and so does saving on this device', fsnap.sets().map((x) => x.name).join() === fm.sets().map((x) => x.name).join());
+  const fstore = createProjectStore(memoryBackend());
+  const fp = await fstore.create({ name: 'Pillars', template: 'cubesat', framework: 'pillars' });
+  const fo = await fstore.open(fp.id);
+  log('A new project (or sample) can start with any framework', frameworkOf(fo.model).id === 'pillars' && fo.model.layers()[2].name === 'Structure' && fo.model.sets().some((x) => x.name === 'Parametrics') && !fo.model.canUndo());
 
   // ---------- a workspace on screen (events need real geometry, so the app's styles too) ----------
   const css = document.createElement('link');

@@ -6,6 +6,7 @@
 // line. Clicking in the text selects that element; selecting an element scrolls to its text.
 import { h, icon, formatKeys } from './dom.js';
 import { LAYERS } from '../model/metamodel.js';
+import { setColor } from '../model/framework.js';
 import { printPackage } from '../text/printer.js';
 import { parseLayer, buildSnapshot, applySnapshot } from '../text/build.js';
 import { TextError } from '../text/lexer.js';
@@ -79,9 +80,10 @@ export function createTextPane(ctx) {
 
   // ---------- painting ----------
   function paintLayers() {
-    seg.replaceChildren(...model.layers().map((l) => {
+    // one button per set: a core set by its letter (R F L P), a set of your own by its initial
+    seg.replaceChildren(...model.sets().map((l) => {
       const info = LAYERS.find((x) => x.id === l.layer);
-      return h('button', { type: 'button', 'aria-pressed': String(l.id === layerId), title: l.name, style: { '--lc': info?.color }, onclick: () => switchLayer(l.id) }, info?.id.toUpperCase());
+      return h('button', { type: 'button', 'aria-pressed': String(l.id === layerId), title: l.name, style: { '--lc': info ? info.color : setColor(l) }, onclick: () => switchLayer(l.id) }, info ? info.id.toUpperCase() : (l.name.trim()[0] || '·').toUpperCase());
     }));
   }
   function paintText() {
@@ -278,6 +280,7 @@ export function createTextPane(ctx) {
   const unsub = model.subscribe(() => {
     if (applying) return;
     if (!model.get(layerId)) layerId = model.layers()[0]?.id || '';
+    if (seg.childElementCount !== model.sets().length) paintLayers();
     if (input.value === baseText) reprint();
     else { stale = true; paintStatus(); }
   });
@@ -291,8 +294,11 @@ export function createTextPane(ctx) {
     el,
     /** Follow the selection: its layer, scrolled to its text. @param {string | null} id */
     syncSelection(id) {
-      const l = id ? model.layerOf(id) : undefined;
-      const layer = l ? model.layers().find((x) => x.layer === l) : undefined;
+      // the set at the top that holds it (a core set or one of your own)
+      let layer = id ? model.get(id) : undefined;
+      const rootId = model.root().id;
+      while (layer && layer.owner && layer.owner !== rootId) layer = model.get(layer.owner);
+      if (layer && layer.owner !== rootId) layer = undefined;
       if (layer && layer.id !== layerId && input.value === baseText) { layerId = layer.id; paintLayers(); reprint(); }
       showElement(id);
     },
