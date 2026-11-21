@@ -789,3 +789,169 @@ textarea.tinput { position: absolute; left: 3px; top: 3px; width: calc(100% - 6p
 .sd-guard { font: 400 11px var(--mono); fill: var(--text-2); cursor: pointer; }
 .sd-guard.sel { fill: var(--accent); }
 .sd-slot { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+
+/* ---------- color for behavior diagrams, fills, running (M7) ---------- */
+.dbody { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.dbody > .dstage, .dbody > .sdstage { flex: 1; min-width: 0; }
+/* a tone gives a box its own hue: --hue is the color, the fill is a light wash of it */
+.node[class*="tone-"] { --hue: var(--text-3); }
+.node.tone-action { --hue: var(--lam); }
+.node.tone-state { --hue: var(--accent); }
+.node.tone-composite { --hue: var(--accent); }
+.node.tone-usecase { --hue: var(--hl); }
+.node.tone-pkg, .node.tone-lane { --hue: var(--tint, var(--text-3)); }
+.node.tone-constraint { --hue: var(--sep); }
+.node.tone-constraint-bad, .node.tone-value-bad { --hue: var(--bad); }
+.node.tone-given { --hue: var(--text-3); }
+.node.tone-computed { --hue: var(--good); }
+.node.tone-unknown { --hue: var(--warn); }
+.node.tone-decision, .node.tone-merge, .node.tone-choice { --hue: var(--warn); }
+.node.tone-fork, .node.tone-join { --hue: var(--turb); }
+.node.tone-initial { --hue: var(--good); }
+.node.tone-final, .node.tone-flowFinal { --hue: var(--bad); }
+.node.tone-history { --hue: var(--accent); }
+.node.tone-actor { --hue: var(--accent); }
+.node.tone-subject { --hue: var(--turb); }
+.node.tone-region { --hue: var(--accent); }
+/* a fill chosen by the user wins */
+.node.fill-blue { --hue: #2f7fd0; } .node.fill-teal { --hue: #12a594; } .node.fill-green { --hue: #2f9e44; } .node.fill-amber { --hue: #d98a00; }
+.node.fill-coral { --hue: #e0583f; } .node.fill-pink { --hue: #d6336c; } .node.fill-violet { --hue: #7c5cf0; } .node.fill-slate { --hue: #64748b; }
+.swatch { width: 12px; height: 12px; border-radius: 4px; flex: none; margin-right: 8px; background: var(--hue); }
+.swatch.fill-blue { --hue: #2f7fd0; } .swatch.fill-teal { --hue: #12a594; } .swatch.fill-green { --hue: #2f9e44; } .swatch.fill-amber { --hue: #d98a00; }
+.swatch.fill-coral { --hue: #e0583f; } .swatch.fill-pink { --hue: #d6336c; } .swatch.fill-violet { --hue: #7c5cf0; } .swatch.fill-slate { --hue: #64748b; }
+.popmenu button .swatch + .popmenu-label { flex: 1; }
+
+.node[class*="tone-"] .box, .node[class*="fill-"] .box { fill: color-mix(in srgb, var(--hue) 11%, var(--bg-elev)); stroke: color-mix(in srgb, var(--hue) 55%, var(--border-strong)); }
+:root[data-resolved-theme="dark"] .node[class*="tone-"] .box, :root[data-resolved-theme="dark"] .node[class*="fill-"] .box { fill: color-mix(in srgb, var(--hue) 16%, var(--bg-elev)); }
+.node.under[class*="tone-"].shape-round > .box { fill: color-mix(in srgb, var(--hue) 5%, color-mix(in srgb, var(--bg-elev) 75%, transparent)); }
+.node[class*="tone-"] .n-stereo { fill: color-mix(in srgb, var(--hue) 70%, var(--text-2)); }
+.node[class*="tone-"] .n-sep { stroke: color-mix(in srgb, var(--hue) 30%, var(--border)); }
+.node:hover .box, .node.sel .box { stroke: var(--accent); }
+.node.sel .box { stroke-width: 2; }
+/* small shapes */
+.node[class*="tone-"] .solid { fill: var(--hue); }
+.node[class*="tone-"] .ring { stroke: var(--hue); fill: color-mix(in srgb, var(--hue) 10%, var(--bg-elev)); }
+.node[class*="tone-"] .cross, .node[class*="tone-"] .stick { stroke: var(--hue); }
+.node.tone-actor .ring { fill: color-mix(in srgb, var(--hue) 14%, var(--bg-elev)); }
+.node.tone-history .n-hist { fill: var(--hue); }
+.node.sel .solid { fill: var(--accent); }
+.node.sel .ring, .node.sel .cross, .node.sel .stick { stroke: var(--accent); }
+/* lanes and containers */
+.node.tone-lane .lane-head { fill: color-mix(in srgb, var(--hue) 14%, var(--bg-elev)); stroke: color-mix(in srgb, var(--hue) 45%, var(--border-strong)); }
+.node.tone-lane .lane { fill: color-mix(in srgb, var(--hue) 3%, color-mix(in srgb, var(--bg-elev) 45%, transparent)); stroke: color-mix(in srgb, var(--hue) 35%, var(--border-strong)); }
+.node.tone-subject .boundary { fill: color-mix(in srgb, var(--hue) 4%, transparent); stroke: color-mix(in srgb, var(--hue) 60%, var(--text-2)); }
+.node.tone-subject .n-stereo { fill: var(--hue); }
+.node.tone-region .region { stroke: color-mix(in srgb, var(--hue) 55%, var(--text-3)); }
+.node.tone-region .n-title { fill: color-mix(in srgb, var(--hue) 70%, var(--text-3)); }
+.node.tone-pkg .box.tab { fill: color-mix(in srgb, var(--hue) 22%, var(--bg-elev)); }
+.node.sel .lane, .node.sel .lane-head, .node.sel .boundary, .node.sel .region { stroke: var(--accent); }
+/* parametric values */
+.node.tone-computed .n-row { fill: var(--good); font-weight: 600; }
+.node.tone-unknown .n-row { fill: var(--warn); }
+.node.tone-value-bad .n-row, .node.tone-constraint-bad .n-row { fill: var(--bad); }
+.node.tone-constraint .n-row, .node.tone-constraint-bad .n-row { font-family: var(--mono); }
+/* lines */
+.k-act .edge.flow.object { stroke: var(--turb); stroke-width: 1.8; }
+.k-act .edge.object + .arrow, .k-act .arrow.object { stroke: var(--turb); }
+.k-act .e-label.dep { fill: var(--warn); }
+.k-stm .e-label.dep { fill: var(--accent); }
+.k-stm .edge.completion { stroke-dasharray: none; stroke: var(--text-3); }
+.k-uc .edge.dashed { stroke: var(--hl); }
+.k-par .edge.bind { stroke: var(--sep); stroke-width: 1.6; }
+.e-label.bind { fill: var(--sep); font-weight: 600; }
+.dstatus { cursor: pointer; border: 0; }
+.dstatus.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.dstatus.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.dstatus.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+
+/* sequence diagram color */
+.sd-head rect { fill: color-mix(in srgb, var(--tint) 13%, var(--bg-elev)); stroke: color-mix(in srgb, var(--tint) 55%, var(--border-strong)); }
+.sd-head.sel rect { stroke: var(--accent); }
+.sd-life { stroke: color-mix(in srgb, var(--text-3) 80%, transparent); }
+.sd-msg.sync .sd-line, .sd-msg.sync .sd-ahead { stroke: var(--accent); }
+.sd-msg.sync .sd-ahead.solid { fill: var(--accent); }
+.sd-msg.async .sd-line, .sd-msg.async .sd-ahead { stroke: var(--lam); }
+.sd-msg.reply .sd-line, .sd-msg.reply .sd-ahead, .sd-msg.create .sd-line, .sd-msg.create .sd-ahead { stroke: var(--text-3); }
+.sd-frag { --op: var(--text-2); }
+.sd-frag.op-alt { --op: var(--warn); } .sd-frag.op-opt { --op: var(--lam); } .sd-frag.op-loop { --op: var(--turb); }
+.sd-frag.op-par { --op: var(--accent); } .sd-frag.op-break { --op: var(--bad); } .sd-frag.op-critical { --op: var(--hl); }
+.sd-frag .sd-frame { fill: color-mix(in srgb, var(--op) 4%, transparent); stroke: color-mix(in srgb, var(--op) 60%, var(--text-2)); }
+.sd-frag .sd-tab { fill: color-mix(in srgb, var(--op) 16%, var(--bg-elev)); stroke: color-mix(in srgb, var(--op) 60%, var(--text-2)); }
+.sd-frag .sd-op { fill: var(--op); }
+
+/* running: what is active, done, waiting, or wrong */
+.node.run-done .box { stroke: color-mix(in srgb, var(--good) 80%, var(--border-strong)); stroke-width: 2.2; }
+.node.run-done .ring, .node.run-done .cross { stroke: color-mix(in srgb, var(--good) 70%, var(--text)); }
+.node.run-on .box { fill: color-mix(in srgb, var(--good) 24%, var(--bg-elev)); stroke: var(--good); stroke-width: 3; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--good) 55%, transparent)); }
+.node.under.run-on.shape-round > .box { fill: color-mix(in srgb, var(--good) 7%, transparent); stroke: var(--good); stroke-width: 2.5; }
+.node.run-on .solid { fill: var(--good); } .node.run-on .ring, .node.run-on .cross { stroke: var(--good); stroke-width: 2.6; }
+.node.run-wait .box, .node.run-wait .ring { stroke: var(--warn); stroke-width: 2.8; stroke-dasharray: 6 4; animation: runwait 1.1s linear infinite; }
+.node.run-wait .solid { fill: var(--warn); }
+.node.run-bad .box, .node.run-bad .ring, .node.run-bad .lane-head { stroke: var(--bad); stroke-width: 3; }
+.node.run-bad .solid { fill: var(--bad); }
+.edge.run-hot { stroke: var(--good); stroke-width: 2.8; }
+.edge.run-token { stroke: var(--good); stroke-width: 2.4; stroke-dasharray: 8 6; animation: runflow .8s linear infinite; }
+.edge.run-bad { stroke: var(--bad); stroke-width: 2.8; }
+.run-dotk { fill: var(--good); stroke: var(--bg-elev); stroke-width: 2.5; pointer-events: none; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--good) 60%, transparent)); }
+.run-count { font: 700 9px var(--mono); fill: #fff; text-anchor: middle; pointer-events: none; }
+.sd-msg.run-done .sd-line { stroke-width: 2; }
+.sd-msg.run-hot .sd-line, .sd-msg.run-hot .sd-ahead { stroke: var(--good); stroke-width: 3; }
+.sd-msg.run-hot .sd-ahead.solid { fill: var(--good); }
+.sd-msg.run-hot .sd-label { fill: var(--good); font-weight: 700; }
+.sd-head.run-on rect { fill: color-mix(in srgb, var(--good) 22%, var(--bg-elev)); stroke: var(--good); stroke-width: 2.5; }
+.sd-frag.run-wait .sd-frame { stroke: var(--warn); stroke-width: 2.4; stroke-dasharray: 6 4; }
+@keyframes runflow { to { stroke-dashoffset: -14; } }
+@keyframes runwait { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .edge.run-token, .node.run-wait .box, .node.run-wait .ring { animation: none; } }
+.run-btn { border-color: color-mix(in srgb, var(--good) 50%, var(--border-strong)); }
+.run-btn svg { color: var(--good); }
+
+/* the run panel */
+.runpanel { width: 320px; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); background: var(--bg-elev); box-sizing: border-box; }
+.run-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 0; }
+.run-head b { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-help { margin: 6px 14px 0; font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.run-ctl { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.run-speed { width: auto; height: 28px; padding: 0 6px; font-size: 12px; }
+.run-status { margin: 10px 14px 0; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; background: var(--bg-sunk); color: var(--text); overflow-wrap: anywhere; }
+.run-status.running { background: color-mix(in srgb, var(--good) 12%, transparent); }
+.run-status.choose { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.run-status.done { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.run-status.stuck { background: color-mix(in srgb, var(--bad) 13%, transparent); color: var(--bad); }
+.run-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 16px; scrollbar-width: thin; }
+.run-sec { margin-top: 14px; min-width: 0; }
+.run-sec h4 { margin: 0 0 6px; font: 600 10px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.run-sec p { margin: 0 0 6px; font-size: 12.5px; overflow-wrap: anywhere; }
+.run-q { padding: 10px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.run-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.run-opts .btn { max-width: 100%; min-width: 0; }
+.ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.run-val { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.run-val .field { height: 28px; font-size: 12px; }
+.run-sw { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; min-width: 0; cursor: pointer; }
+.run-muted { color: var(--text-3); font-size: 12px; }
+.run-log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; scrollbar-width: thin; }
+.run-log li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.run-log li .linkish { color: var(--text); font-size: 12px; }
+.run-log li.warn .linkish { color: var(--warn); }
+.run-log li.info .linkish { color: var(--text-2); }
+.run-n { color: var(--text-3); font-size: 10.5px; text-align: right; padding-top: 1px; }
+.run-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.run-f .linkish { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; align-items: start; width: 100%; color: var(--text); font-size: 12px; padding: 5px 6px; border-radius: 6px; }
+.run-f .linkish:hover:not(:disabled) { background: var(--bg-sunk); }
+.run-f .linkish:disabled { cursor: default; opacity: 1; }
+.run-dot { width: 8px; height: 8px; border-radius: 99px; margin-top: 4px; background: var(--text-3); }
+.run-f.ok .run-dot { background: var(--good); } .run-f.info .run-dot { background: var(--accent); }
+.run-f.warn .run-dot { background: var(--warn); } .run-f.error .run-dot { background: var(--bad); }
+
+/* requirement checks in the inspector */
+.check-box { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding: 9px 11px; border-radius: 9px; font-size: 12px; overflow-wrap: anywhere; background: var(--bg-sunk); }
+.check-box b { font-size: 12.5px; }
+.check-box.pass { background: color-mix(in srgb, var(--good) 11%, transparent); } .check-box.pass b { color: var(--good); }
+.check-box.fail { background: color-mix(in srgb, var(--bad) 11%, transparent); } .check-box.fail b { color: var(--bad); }
+.check-box.error { background: color-mix(in srgb, var(--warn) 12%, transparent); } .check-box.error b { color: var(--warn); }
+.check-box ul { margin: 2px 0 0; padding-left: 16px; }
+.inspector .good { color: var(--good); } .inspector .bad { color: var(--bad); } .inspector .warn { color: var(--warn); }
+.k-act .arrow.object { stroke: var(--turb); }
+.arrow.run-hot, .arrow.run-token { stroke: var(--good); stroke-width: 2.4; }
+.arrow.run-bad { stroke: var(--bad); }

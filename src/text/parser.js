@@ -10,7 +10,10 @@
 //   port def Name { … }                                        an interface block
 //   part name : Type [mult];                                   a part property
 //   in|out port name : ~Type;                                  a port (~ = conjugated)
-//   attribute name = 16 [Ah];                                  a value property
+//   attribute name = 16 [Ah];                                  a value property (attribute name : Type = 16 [Ah];)
+//   attribute def Energy { @Loom { unit = "Wh"; } }           a value type
+//   constraint def Endurance { attribute t [h]; … @Loom { expr = "t = E / P"; } }
+//   constraint range : Endurance;  bind range.E = battery.usableEnergy;   a constraint property and a binding
 //   connection Name connect a.p to b.q;   connect a.p to b.q;  a connector
 //   view Name { @Loom { kind = "bdd"; } }                      a diagram, table or matrix
 //   comment Name /* text */                                    a note
@@ -331,8 +334,17 @@ export function parse(src) {
       }
       case 'attribute': {
         next();
+        if (isWord('def')) {
+          next();
+          const n = node('valueType', t);
+          n.name = name('a value type name');
+          specs(n);
+          bodyOrEnd(n);
+          return n;
+        }
         const n = node('attribute', t);
         n.name = name('an attribute name');
+        if (isSym(':')) { next(); n.type = { ...ref(), conj: false }; }
         if (isSym('=')) {
           next();
           const vt = next();
@@ -340,6 +352,32 @@ export function parse(src) {
           n.value = vt.v;
         }
         if (peek().t === 'bracket') n.unit = next().v.trim();
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'constraint': {
+        next();
+        if (isWord('def')) {
+          next();
+          const n = node('constraintDef', t);
+          n.name = name('a constraint block name');
+          specs(n);
+          bodyOrEnd(n);
+          return n;
+        }
+        const n = node('constraint', t);
+        n.name = name('a constraint name');
+        if (isSym(':')) { next(); n.type = { ...ref(), conj: false }; }
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'bind': {
+        next();
+        const n = node('binding', t);
+        n.end1 = endPath();
+        if (n.end1.segs.length !== 2) fail(t, 'Write a binding as: bind constraint.parameter = part.value;');
+        sym('=');
+        n.end2 = endPath();
         bodyOrEnd(n);
         return n;
       }

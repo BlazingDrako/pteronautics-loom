@@ -150,9 +150,9 @@ export function traceTests(log) {
   // ---------- dependency matrix ----------
   const sat = matrixData(k, { rel: 'satisfy', rows: 'partDef', cols: 'requirement' });
   log('The satisfy matrix finds every satisfy relationship', sat.links.size === k.byKind('satisfy').length && sat.cols.length === 6);
-  log('Rows and columns count their marks', sat.rowN.get(by('Battery Pack').id) === 1 && !sat.colN.has(by('Endurance').id));
+  log('Rows and columns count their marks', sat.rowN.get(by('Battery Pack').id) === 1 && sat.colN.get(by('Endurance').id) === 1 && !sat.colN.has(by('Survey a large site per sortie').id));
   const hid = matrixData(k, { rel: 'satisfy', rows: 'partDef', cols: 'requirement', hideEmpty: true });
-  log('Hide empty keeps only rows and columns with marks', hid.rows.length === 3 && hid.cols.length === 3);
+  log('Hide empty keeps only rows and columns with marks', hid.rows.length === 4 && hid.cols.length === 4);
   log('Sets can be limited to an RFLP layer', setMembers(k, 'partDef@p').length === 3 && setMembers(k, 'partDef@l').every((e) => k.layerOf(e.id) === 'l'));
   const alloc = matrixData(k, { rel: 'allocate', rows: 'action', cols: 'partDef@l' });
   log('The allocation matrix shows functions allocated to logical blocks', alloc.links.size === 3);

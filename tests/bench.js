@@ -13,6 +13,9 @@ import { highlight } from '../src/ui/textpane.js';
 import { projectFiles, modelFromFiles } from '../src/storage/folder.js';
 import { layoutActivity } from '../src/canvas/act.js';
 import { createSequenceView } from '../src/canvas/sdview.js';
+import { analyze } from '../src/analysis/solver.js';
+import { checksOf } from '../src/analysis/verify.js';
+import { createActivityRun, checkActivity } from '../src/sim/activity.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -258,4 +261,62 @@ export async function runBench(report) {
   const tSd = time(() => sv.render());
   report({ name: 'Draw a sequence diagram of 1,000 messages', ms: tSd, budget: 200 });
   sv.dispose(); shost.remove();
+
+  // ---------- 7. analysis and simulation ----------
+  const am = createModel();
+  const AL = /** @type {string} */ (am.layers().find((l) => l.layer === 'l')?.id), AR = /** @type {string} */ (am.layers().find((l) => l.layer === 'r')?.id);
+  let top = '';
+  am.transact('Analysis', (tx) => {
+    // a chain of 200 blocks, each with an equation: out = in * k + c, fed by the one before
+    const def = tx.create('constraintDef', { owner: AL, name: 'Stage', props: { expr: 'y = x * k + c' } });
+    const p = Object.fromEntries(['y', 'x', 'k', 'c'].map((n) => [n, tx.create('attribute', { owner: def, name: n, props: { unit: n === 'k' ? '' : 'W' } })]));
+    top = tx.create('partDef', { owner: AL, name: 'Plant' });
+    let prevPart = /** @type {string | null} */ (null);
+    /** @type {string} */
+    let prevOut = tx.create('attribute', { owner: top, name: 'input', props: { value: '1', unit: 'kW' } });
+    for (let i = 0; i < 200; i++) {
+      const blk = tx.create('partDef', { owner: AL, name: `Stage ${i}` });
+      const out = tx.create('attribute', { owner: blk, name: 'out', props: { unit: 'W' } });
+      tx.create('attribute', { owner: blk, name: 'gain', props: { value: '1.001' } });
+      tx.create('attribute', { owner: blk, name: 'loss', props: { value: '-2', unit: 'W' } });
+      const part = tx.create('part', { owner: top, name: `s${i}`, props: { type: blk } });
+      const use = tx.create('constraint', { owner: top, name: `c${i}`, props: { type: def } });
+      const val = (/** @type {string} */ name) => /** @type {string} */ (am.children(blk).find((c) => c.name === name)?.id);
+      tx.create('binding', { owner: top, name: 'y', props: { constraint: use, param: p.y, value: { path: [part], port: out } } });
+      tx.create('binding', { owner: top, name: 'x', props: { constraint: use, param: p.x, value: prevPart ? { path: [prevPart], port: prevOut } : { path: [], port: prevOut } } });
+      tx.create('binding', { owner: top, name: 'k', props: { constraint: use, param: p.k, value: { path: [part], port: val('gain') } } });
+      tx.create('binding', { owner: top, name: 'c', props: { constraint: use, param: p.c, value: { path: [part], port: val('loss') } } });
+      prevPart = part; prevOut = out;
+    }
+    for (let i = 0; i < 500; i++) {
+      const r = tx.create('requirement', { owner: AR, name: `Power ${i}`, props: { check: `s199.out >= ${i} [W]` } });
+      tx.link('satisfy', top, r);
+    }
+  });
+  let an = /** @type {any} */ (null);
+  const tSolve = time(() => { an = analyze(am, top); });
+  report({ name: `Solve 200 chained equations through 200 parts (${an.vars.size} values)`, ms: tSolve, budget: 100, note: 're-runs on every edit to the block' });
+  const tChecks = time(() => checksOf(am));
+  report({ name: 'Live-check 500 requirements against the solved values', ms: tChecks, budget: 100 });
+  const runM = createModel();
+  const RF = /** @type {string} */ (runM.layers().find((l) => l.layer === 'f')?.id);
+  let actId = '';
+  runM.transact('Activity', (tx) => {
+    actId = tx.create('action', { owner: RF, name: 'Mission' });
+    let prev = tx.create('controlNode', { owner: actId, name: 'Initial', props: { nodeKind: 'initial' } });
+    for (let i = 0; i < 40; i++) {
+      // a fork of three, joined, then a decision that can loop back
+      const f = tx.create('controlNode', { owner: actId, name: `Fork ${i}`, props: { nodeKind: 'fork' } });
+      const j = tx.create('controlNode', { owner: actId, name: `Join ${i}`, props: { nodeKind: 'join' } });
+      tx.create('flow', { owner: actId, name: 'f', props: { from: prev, to: f } });
+      for (let b = 0; b < 3; b++) { const a = tx.create('action', { owner: actId, name: `A${i}.${b}` }); tx.create('flow', { owner: actId, name: 'f', props: { from: f, to: a } }); tx.create('flow', { owner: actId, name: 'f', props: { from: a, to: j } }); }
+      prev = j;
+    }
+    tx.create('flow', { owner: actId, name: 'f', props: { from: prev, to: tx.create('controlNode', { owner: actId, name: 'Final', props: { nodeKind: 'final' } }) } });
+  });
+  const tCheck = time(() => checkActivity(runM, actId));
+  report({ name: 'Check an activity of 120 actions and 40 forks (every run explored)', ms: tCheck, budget: 500 });
+  const rr = createActivityRun(runM, actId);
+  const tRun = time(() => { for (let i = 0; i < 200 && rr.state === 'running' || i === 0; i++) rr.step(); });
+  report({ name: `Run it to the end (${rr.stepNo} steps)`, ms: tRun, budget: 50 });
 }

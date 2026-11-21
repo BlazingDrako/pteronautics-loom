@@ -10,6 +10,8 @@ import { h, s, icon, toast } from '../ui/dom.js';
 import { popupMenu } from '../ui/menu.js';
 import { ellipsize, FONTS, textWidth } from './measure.js';
 import { kindName } from '../model/metamodel.js';
+import { createRunPanel, emptyMarks } from '../ui/runpanel.js';
+import { sequenceAdapter } from '../sim/adapters.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -111,13 +113,38 @@ export function createSequenceView(ctx) {
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Add a participant', onclick: (/** @type {Event} */ e) => lifelineMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Lifeline'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Put the selected message in a combined fragment (or add an empty one)', onclick: (/** @type {Event} */ e) => fragmentMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('plus'), 'Fragment'),
     h('button', { class: 'btn sm', type: 'button', title: 'Add an operand (another case) to the selected fragment', onclick: () => addOperand() }, icon('plus'), 'Operand'),
+    h('button', { class: 'btn sm run-btn', type: 'button', title: 'Play the scenario message by message, and check it for problems', onclick: () => toggleRun() }, icon('play'), 'Play'),
     h('span', { class: 'dtool-hint' }, 'Drag between lifelines to add a message; drag a message to move it'),
     h('span', { style: { flex: '1' } }),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', onclick: () => { k = Math.max(0.4, k / 1.2); render(); } }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', onclick: () => { k = Math.min(2.5, k * 1.2); render(); } }, icon('plus')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', onclick: () => fit() }, icon('fit')));
-  const el = h('div', { class: 'dview sdview' }, toolbar, stage);
+  const dbody = h('div', { class: 'dbody' }, stage);
+  const el = h('div', { class: 'dview sdview' }, toolbar, dbody);
+  /** What the run panel lights up. */
+  let marks = emptyMarks();
+  /** @type {ReturnType<typeof createRunPanel> | null} */
+  let runPanel = null;
+  function toggleRun(open = !runPanel) {
+    if (!open) { runPanel?.dispose(); runPanel?.el.remove(); runPanel = null; marks = emptyMarks(); invalidate(); return; }
+    if (runPanel) return;
+    runPanel = createRunPanel({
+      adapter: () => sequenceAdapter(model, owner()),
+      onMarks: (mk) => { marks = mk; invalidate(); },
+      onSelect: (ids) => { if (ids[0]) ctx.select(ids[0]); },
+      onClose: () => toggleRun(false),
+    });
+    dbody.append(runPanel.el);
+  }
+  /** The color of a lifeline's head: its part's layer, or the actor color. @param {Element} l */
+  const tintOf = (l) => {
+    const r = l.props.represents ? model.get(l.props.represents) : undefined;
+    if (!r) return '';
+    if (r.kind === 'actor') return 'var(--accent)';
+    const layer = model.layerOf(r.kind === 'part' && r.props.type ? r.props.type : r.id);
+    return layer ? `var(--layer-${layer})` : '';
+  };
 
   function invalidate() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
 
@@ -137,7 +164,8 @@ export function createSequenceView(ctx) {
       const on = f.el.id === sel || f.operands.some((o) => o.el.id === sel);
       const op = /** @type {string} */ (f.el.props.operator);
       const tw = Math.max(36, textWidth(op, FONTS.name) + 22);
-      out.push(`<g class="sd-frag${on ? ' sel' : ''}" data-id="${f.el.id}"><rect class="sd-frame" x="${x0}" y="${f.y0}" width="${x1 - x0}" height="${f.y1 - f.y0}" rx="4"/>`
+      const run = marks.nodes.get(f.el.id);
+      out.push(`<g class="sd-frag op-${esc(op)}${run ? ' run-' + run : ''}${on ? ' sel' : ''}" data-id="${f.el.id}"><rect class="sd-frame" x="${x0}" y="${f.y0}" width="${x1 - x0}" height="${f.y1 - f.y0}" rx="4"/>`
         + `<path class="sd-tab" d="M${x0} ${f.y0 + 20} V${f.y0} H${x0 + tw} V${f.y0 + 12} L${x0 + tw - 8} ${f.y0 + 20} Z"/><text class="sd-op" x="${x0 + 8}" y="${f.y0 + 14}">${esc(op)}</text></g>`);
       f.operands.forEach((o, i) => {
         if (i > 0) out.push(`<line class="sd-sep" x1="${x0}" x2="${x1}" y1="${o.y - 4}" y2="${o.y - 4}"/>`);
@@ -151,7 +179,7 @@ export function createSequenceView(ctx) {
       const on = l.id === sel;
       out.push(`<line class="sd-life" x1="${x}" x2="${x}" y1="${HEAD_Y + HEAD_H}" y2="${(L?.height || 0) - 20}"/>`
         + `<rect class="sd-life-hit" data-life="${l.id}" x="${x - 12}" y="${HEAD_Y + HEAD_H}" width="24" height="${(L?.height || 0) - HEAD_Y - HEAD_H}"/>`
-        + `<g class="sd-head${on ? ' sel' : ''}" data-head="${l.id}"><rect x="${x - w / 2 + 6}" y="${HEAD_Y}" width="${w - 12}" height="${HEAD_H}" rx="8"/>`
+        + `<g class="sd-head${marks.nodes.get(l.id) ? ' run-' + marks.nodes.get(l.id) : ''}${on ? ' sel' : ''}" data-head="${l.id}" style="--tint:${tintOf(l) || 'var(--text-3)'}"><rect x="${x - w / 2 + 6}" y="${HEAD_Y}" width="${w - 12}" height="${HEAD_H}" rx="8"/>`
         + `<text x="${x}" y="${HEAD_Y + 28}">${esc(ellipsize(L?.label(l) || '', w - 28, FONTS.name))}</text></g>`);
     });
     // messages
@@ -166,7 +194,8 @@ export function createSequenceView(ctx) {
         : `<path class="sd-ahead" d="M${tip.x - tip.d * 10} ${tip.y - 5} L${tip.x} ${tip.y} L${tip.x - tip.d * 10} ${tip.y + 5}"/>`;
       const lx = self ? msg.from + 52 : (msg.from + msg.to) / 2;
       const maxW = self ? 220 : Math.max(60, Math.abs(msg.to - msg.from) - 16);
-      out.push(`<g class="sd-msg ${kind}${on ? ' sel' : ''}" data-id="${msg.el.id}"><path class="sd-hit" d="${path}"/><path class="sd-line" d="${path}"/>${head}`
+      const run = marks.edges.get(msg.el.id);
+      out.push(`<g class="sd-msg ${kind}${run ? ' run-' + run : ''}${on ? ' sel' : ''}" data-id="${msg.el.id}"><path class="sd-hit" d="${path}"/><path class="sd-line" d="${path}"/>${head}`
         + `<text class="sd-label" x="${lx}" y="${msg.y - 7}" text-anchor="${self ? 'start' : 'middle'}">${esc(ellipsize(msg.el.name, maxW, FONTS.label))}</text></g>`);
     }
     if (drag?.mode === 'message') out.push(`<path class="link-ghost" d="M${L.x.get(drag.from)} ${drag.y} L${drag.x} ${drag.y}"/>`);
@@ -312,6 +341,7 @@ export function createSequenceView(ctx) {
   });
   stage.addEventListener('keydown', (ev) => {
     if (ev.target !== stage) return;
+    if (runPanel && !ev.metaKey && !ev.ctrlKey && runPanel.key(ev)) { ev.preventDefault(); ev.stopPropagation(); return; }
     if ((ev.key === 'Enter' || ev.key === 'F2') && ctx.selected()) { ev.preventDefault(); ev.stopPropagation(); startRename(/** @type {string} */ (ctx.selected())); }
   });
 
@@ -322,14 +352,16 @@ export function createSequenceView(ctx) {
     render();
   }
 
-  const unsub = model.subscribe(() => invalidate());
+  const unsub = model.subscribe(() => { runPanel?.refresh(); invalidate(); });
   invalidate();
   return {
     el, render, invalidate, fit,
     syncSelection: () => invalidate(),
     focus: () => stage.focus({ preventScroll: true }),
     layout: () => L,
-    dispose() { cancelAnimationFrame(raf); unsub(); },
+    toggleRun: (/** @type {boolean | undefined} */ open) => toggleRun(open),
+    canRun: () => true,
+    dispose() { cancelAnimationFrame(raf); unsub(); runPanel?.dispose(); },
   };
 }
 

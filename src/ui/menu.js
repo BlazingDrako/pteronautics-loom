@@ -1,7 +1,7 @@
 // A small popup menu anchored to a button. Arrow keys move, Enter picks, Esc closes.
 import { h } from './dom.js';
 
-/** @typedef {{ label: string, hint?: string, run: () => void, disabled?: boolean, danger?: boolean } | 'sep'} MenuItem */
+/** @typedef {{ label: string, hint?: string, run: () => void, disabled?: boolean, danger?: boolean, swatch?: string } | 'sep'} MenuItem */
 
 /** @type {(() => void) | null} */
 let closeOpen = null;
@@ -15,7 +15,8 @@ export function popupMenu(anchor, items, o = {}) {
     items.map((it) => {
       if (it === 'sep') return h('div', { class: 'popmenu-sep', role: 'separator' });
       const b = h('button', { type: 'button', role: 'menuitem', class: it.danger ? 'danger-text' : '', disabled: it.disabled ? true : undefined, onclick: () => { close(); it.run(); } },
-        h('span', { class: 'popmenu-label' }, it.label), it.hint ? h('span', { class: 'popmenu-hint' }, it.hint) : null);
+        it.swatch ? h('span', { class: `swatch fill-${it.swatch}`, 'aria-hidden': 'true' }) : null,
+        h('span', { class: 'popmenu-label' }, it.label), it.hint && !it.swatch ? h('span', { class: 'popmenu-hint' }, it.hint) : null);
       buttons.push(b);
       return b;
     }));

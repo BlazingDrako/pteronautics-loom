@@ -38,14 +38,14 @@ export function actNodeContent(m, el, d, n) {
   const color = layer ? LAYERS.find((l) => l.id === layer)?.color || null : null;
   if (el.kind === 'controlNode') {
     const c = CONTROL[el.props.nodeKind] || CONTROL.decision;
-    return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: c.shape, fixed: { w: c.w, h: c.h }, label: defaultName(el.name) ? '' : el.name };
+    return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: c.shape, fixed: { w: c.w, h: c.h }, label: defaultName(el.name) ? '' : el.name, tone: el.props.nodeKind };
   }
   if (isLane(el)) {
     const t = el.kind === 'part' && el.props.type ? m.get(el.props.type) : null;
-    return { stereo: '', name: t ? `${el.name} : ${t.name}` : el.name, compartments: [], layerColor: color, shape: 'lane', under: true, depth: 0, linkable: false };
+    return { stereo: '', name: t ? `${el.name} : ${t.name}` : el.name, compartments: [], layerColor: color, shape: 'lane', under: true, depth: 0, linkable: false, tone: 'lane', tint: color || undefined };
   }
   const calls = m.children(el.id).filter((c) => c.kind === 'action').length;
-  return { stereo: calls ? (n === 'guided' ? `${calls} steps inside` : '«call behavior»') : '', name: el.name, compartments: [], layerColor: null, shape: 'round' };
+  return { stereo: calls ? (n === 'guided' ? `${calls} steps inside` : '«call behavior»') : '', name: el.name, compartments: [], layerColor: null, shape: 'round', tone: 'action' };
 }
 
 /** @param {Model} m @param {Set<string>} shown @returns {Edge[]} */
@@ -55,7 +55,7 @@ export function actEdgesFor(m, shown) {
   for (const f of m.byKind('flow')) {
     if (!shown.has(f.props.from) || !shown.has(f.props.to)) continue;
     const bits = [f.props.guard ? `[${f.props.guard}]` : '', f.props.flowKind === 'object' && f.props.item ? f.props.item : ''].filter(Boolean);
-    out.push({ id: f.id, kind: 'flow', from: f.props.from, to: f.props.to, label: bits.join(' '), element: f.id });
+    out.push({ id: f.id, kind: 'flow', from: f.props.from, to: f.props.to, label: bits.join(' '), element: f.id, cls: f.props.flowKind === 'object' ? 'object' : f.props.guard ? 'guarded' : '' });
   }
   return out;
 }

@@ -80,7 +80,11 @@ export function printPackage(m, pkgId) {
       case 'interfaceDef': return `port def ${q}${sp}`;
       case 'part': return `part ${q}${p.type ? ` : ${refText(t, p.type, e.id, TYPE_KINDS.part)}` : ''}${p.multiplicity !== '1' ? ` [${p.multiplicity}]` : ''}`;
       case 'port': return `${p.direction !== 'inout' ? `${p.direction} ` : ''}port ${q}${p.type ? ` : ${p.conjugated ? '~' : ''}${refText(t, p.type, e.id, TYPE_KINDS.port)}` : ''}`;
-      case 'attribute': return `attribute ${q}${p.value ? ` = ${isNumber(p.value) ? p.value : quoteString(p.value)}` : ''}${p.unit ? ` [${p.unit}]` : ''}`;
+      case 'attribute': return `attribute ${q}${p.type ? ` : ${refText(t, p.type, e.id, TYPE_KINDS.attribute)}` : ''}${p.value ? ` = ${isNumber(p.value) ? p.value : quoteString(p.value)}` : ''}${p.unit ? ` [${p.unit}]` : ''}`;
+      case 'valueType': return `attribute def ${q}${sp}`;
+      case 'constraintDef': return `constraint def ${q}${sp}`;
+      case 'constraint': return `constraint ${q}${p.type ? ` : ${refText(t, p.type, e.id, TYPE_KINDS.constraint)}` : ''}`;
+      case 'binding': return `bind ${quoteName(m.get(p.constraint)?.name || '?')}.${quoteName(m.get(p.param)?.name || '?')} = ${p.value ? endText(p.value) : '?'}`;
       case 'connector': {
         const a = endText(p.end1), b = endText(p.end2);
         // the default name (a.b → c.d, as the text builder gives it) is not written

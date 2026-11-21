@@ -15,7 +15,7 @@ export function treeOf(m) {
 }
 
 /** Element kinds a reference may land on, or null for "anything referable". */
-export const TYPE_KINDS = /** @type {Record<string, string[]>} */ ({ part: ['partDef'], port: ['interfaceDef'] });
+export const TYPE_KINDS = /** @type {Record<string, string[]>} */ ({ part: ['partDef'], port: ['interfaceDef'], attribute: ['valueType'], constraint: ['constraintDef'] });
 /** @param {string} rel */
 export function targetKinds(rel) {
   const t = RELATIONSHIPS[rel]?.targets;

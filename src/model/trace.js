@@ -1,6 +1,7 @@
 // Requirements and traceability: ID schemes, requirement levels, coverage, and the RFLP
 // "thread" through an element. Pure functions of the model, used by the requirements table,
 // the dependency matrix, the RFLP trace view, the Systems V and the inspector.
+import { checksOf } from '../analysis/verify.js';
 
 /** @typedef {import('./model.js').Model} Model */
 /** @typedef {import('./model.js').Element} Element */
@@ -158,16 +159,19 @@ function autoLevel(m, r, seen, memo) {
  * @typedef {{
  *   satisfied: boolean, verified: boolean, passed: boolean, failed: boolean,
  *   direct: { satisfy: Element[], verify: Element[], refine: Element[] },
+ *   check?: import('../analysis/verify.js').CheckResult,   its live check, if it has one
  * }} ReqStatus
  */
 
 /**
  * Status for every requirement. A requirement is satisfied when something satisfies it, or
  * when it is broken down into sub-requirements that are all satisfied. The same goes for
- * verified (a test case verifies it) and passed (every test case verifying it has passed).
+ * verified (a test case verifies it, or it has a live check) and passed (every test case
+ * verifying it has passed, and its check is met).
  * @param {Model} m @returns {Map<string, ReqStatus>}
  */
 export function requirementStatus(m) {
+  const checks = checksOf(m);
   /** @type {Map<string, ReqStatus>} */
   const out = new Map();
   /** @type {Set<string>} */
@@ -182,13 +186,18 @@ export function requirementStatus(m) {
     const subs = subRequirements(m, r.id).map(of);
     const all = (/** @type {(s: ReqStatus) => boolean} */ f) => subs.length > 0 && subs.every(f);
     const results = direct.verify.map((t) => t.props.result);
+    const check = checks.get(r.id);
+    // a live check is evidence like a test: met is a pass, not met a fail (a broken check is neither)
+    if (check && check.verdict !== 'error') results.push(check.verdict === 'pass' ? 'Pass' : 'Fail');
+    else if (check) results.push('Not run');
     const failed = results.includes('Fail') || subs.some((s) => s.failed);
     const st = {
       satisfied: direct.satisfy.length > 0 || all((s) => s.satisfied),
-      verified: direct.verify.length > 0 || all((s) => s.verified),
+      verified: direct.verify.length > 0 || !!check || all((s) => s.verified),
       passed: !failed && ((results.length > 0 && results.every((x) => x === 'Pass')) || (!results.length && all((s) => s.passed))),
       failed,
       direct,
+      ...(check ? { check } : {}),
     };
     busy.delete(r.id);
     out.set(r.id, st);

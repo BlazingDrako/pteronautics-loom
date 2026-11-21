@@ -4,6 +4,9 @@ import { h, icon } from './dom.js';
 import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel, isDiagram } from '../model/metamodel.js';
 import { levelOf, requirementStatus, idPrefixFor, DEFAULT_PREFIX } from '../model/trace.js';
 import { canUseFolders } from '../storage/folderfs.js';
+import { analysisOf, addMissingParams, showVar, hasEquations } from '../analysis/solver.js';
+import { isUnit, parseUnit, dimName } from '../analysis/units.js';
+import { parseExpr, ExprError } from '../analysis/expr.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -57,7 +60,48 @@ export function createInspector(ctx) {
       row('Satisfied', st.satisfied, st.direct.satisfy.length ? '✓ Yes' : '✓ Through sub-requirements', 'Not yet'),
       row('Verified', st.verified, st.direct.verify.length ? '✓ Yes' : '✓ Through sub-requirements', 'Not yet'),
       st.verified ? row('Result', st.passed, '✓ Passed', st.failed ? '✕ Failed' : 'Not run yet', st.failed) : null,
+      st.check ? h('div', { class: `check-box ${st.check.verdict}` },
+        h('b', {}, st.check.verdict === 'pass' ? '✓ Check met' : st.check.verdict === 'fail' ? '✕ Check not met' : '! Check cannot run'),
+        h('span', {}, st.check.verdict === 'error' ? st.check.message : st.check.message.replace(/^(Met|Not met):? ?/, '')),
+        st.check.subjects.length > 1 ? h('ul', {}, st.check.subjects.map((x) => h('li', { class: x.verdict }, `${x.name}: ${x.verdict === 'pass' ? 'met' : x.verdict === 'fail' ? 'not met' : 'cannot run'}`))) : null) : null,
     ];
+  }
+
+  /** What the solver says about a value, an equation or a block. @param {Element} e */
+  function analysisInfo(e) {
+    const m = ctx.model;
+    if (e.kind === 'attribute') {
+      /** @type {any[]} */
+      const out = [];
+      const u = e.props.unit || (e.props.type ? m.get(e.props.type)?.props.unit : '') || '';
+      if (u && !isUnit(u)) out.push(h('p', { class: 'warn small' }, `Loom does not know the unit "${u}", so this value cannot be used in equations.`));
+      else if (u) out.push(h('div', { class: 'kv' }, h('span', {}, 'Measures'), h('span', {}, dimName(parseUnit(u).d))));
+      const owner = e.owner ? m.get(e.owner) : null;
+      if (owner?.kind === 'partDef') {
+        const v = analysisOf(m, owner.id).vars.get(e.id);
+        if (v?.source === 'computed') out.push(h('div', { class: 'kv' }, h('span', {}, 'Computed'), h('span', { class: 'mono good' }, showVar(v))));
+        else if (v?.source === 'unknown' && hasEquations(m, owner.id)) out.push(h('div', { class: 'kv' }, h('span', {}, 'Computed'), h('span', { class: 'muted' }, 'not yet: no equation gives it a value')));
+      }
+      return out;
+    }
+    if (e.kind === 'constraintDef') {
+      if (!e.props.expr) return [h('p', { class: 'muted small' }, 'Write the equation above, such as t = E / P. Loom adds a parameter for each name in it; give each a unit.')];
+      try { parseExpr(e.props.expr); }
+      catch (err) { return [h('p', { class: 'bad small' }, `The equation has a problem: ${err instanceof ExprError ? err.message : String(err)}`)]; }
+      const params = m.children(e.id).filter((c) => c.kind === 'attribute');
+      return [h('div', { class: 'kv' }, h('span', {}, 'Parameters'), h('span', { class: 'mono' }, params.map((p) => p.name + (p.props.unit ? ` [${p.props.unit}]` : '')).join(', ') || 'none'))];
+    }
+    if (e.kind === 'partDef' && hasEquations(m, e.id)) {
+      const an = analysisOf(m, e.id);
+      const computed = [...an.vars.values()].filter((v) => v.source === 'computed' && !v.local);
+      return [
+        h('div', { class: 'sec' }, `Analysis · ${an.equations.length} equation${an.equations.length === 1 ? '' : 's'}`),
+        ...computed.slice(0, 10).map((v) => h('div', { class: 'kv' }, h('span', { class: 'mono ellip', title: v.name }, v.name), h('span', { class: 'mono good' }, showVar(v)))),
+        ...an.problems.slice(0, 6).map((p) => h('button', { class: `linkish small ${p.level === 'error' ? 'bad' : 'warn'}`, type: 'button', onclick: () => p.id && ctx.select(p.id) }, p.message)),
+        !computed.length && !an.problems.length ? h('p', { class: 'muted small' }, 'Nothing to compute: every value is given.') : null,
+      ];
+    }
+    return [];
   }
 
   /** @param {Element} e */
@@ -65,12 +109,16 @@ export function createInspector(ctx) {
     const n = ctx.settings.get().notation;
     return Object.entries(ELEMENTS[e.kind].props).filter(([, p]) => !p.hidden).map(([key, p]) => {
       const value = e.props[key];
-      const set = (/** @type {any} */ v) => ctx.edit(`Change ${p.label.toLowerCase()}`, (tx) => tx.setProps(e.id, { [key]: v }));
+      const set = (/** @type {any} */ v) => ctx.edit(`Change ${p.label.toLowerCase()}`, (tx) => {
+        tx.setProps(e.id, { [key]: v });
+        // a new equation brings its parameters with it
+        if (e.kind === 'constraintDef' && key === 'expr') addMissingParams(ctx.model, tx, e.id);
+      });
       if (key === 'idPrefix' && e.kind === 'package') {
         const inherited = e.owner ? idPrefixFor(ctx.model, e.owner) : DEFAULT_PREFIX;
         return textField(p.label, value ?? '', set, { placeholder: inherited, mono: true, hint: value ? 'New requirements in here are numbered with this prefix' : `Empty: uses ${inherited}` });
       }
-      if (p.type === 'text') return textField(p.label, value ?? '', set, { placeholder: p.placeholder, mono: key === 'reqId' || key === 'value' || key === 'unit' || key === 'multiplicity' });
+      if (p.type === 'text') return textField(p.label, value ?? '', set, { placeholder: p.placeholder, mono: ['reqId', 'value', 'unit', 'multiplicity', 'expr', 'check'].includes(key), hint: key === 'check' ? 'Names are values of what satisfies this requirement; units in brackets. Re-checked on every edit.' : undefined });
       if (p.type === 'longtext') return textField(p.label, value ?? '', set, { long: true, placeholder: p.placeholder });
       if (p.type === 'end') {
         // a connector end: the parts it runs through, then the port
@@ -157,6 +205,7 @@ export function createInspector(ctx) {
       isDiagram(e.kind) ? h('div', { class: 'kv' }, h('span', {}, 'Shows'), h('span', { class: 'mono' }, `${Object.keys(e.layout?.nodes || {}).length} elements`)) : null,
       e.layer ? null : propFields(e),
       e.kind === 'requirement' ? reqStatus(e) : null,
+      analysisInfo(e),
       kids.length ? [h('div', { class: 'sec' }, `Contains · ${kids.length}`), h('div', { class: 'chips' }, kids.map((k) => h('button', { class: 'chip', type: 'button', title: k.name, onclick: () => ctx.select(k.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[k.kind].abbr), h('span', { class: 'chip-name' }, k.name))))] : null,
       e.layer || isDiagram(e.kind) ? null : relationships(e),
       (() => {

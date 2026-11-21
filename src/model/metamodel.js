@@ -11,7 +11,7 @@
  * @typedef {({ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
  *   | { type: 'enum', label: string, options: string[], default: string }
  *   | { type: 'ref', label: string, kinds: string[], default?: null, required?: true }  required: deleting the target deletes this element
- *   | { type: 'end', label: string, default?: null }) & { hidden?: true }} PropSpec  hidden: kept by a view's own controls, not shown in the inspector
+ *   | { type: 'end', label: string, default?: null }) & { hidden?: true }} PropSpec  an end: a connector's, or a binding's value (its "port" is then a value property)  hidden: kept by a view's own controls, not shown in the inspector
  * @typedef {{ path: string[], port: string | null }} End  a connector end: parts from the owning block, then an optional port
  */
 /**
@@ -61,6 +61,7 @@ export const ELEMENTS = {
       priority: { type: 'enum', label: 'Priority', options: ['—', 'Must', 'Should', 'Could'], default: '—' },
       status: { type: 'enum', label: 'Status', options: ['Draft', 'In review', 'Approved', 'Retired'], default: 'Draft' },
       method: { type: 'enum', label: 'Verification method', options: ['—', 'Analysis', 'Test', 'Inspection', 'Demonstration'], default: '—' },
+      check: { type: 'text', label: 'Check (live)', default: '', placeholder: 'endurance >= 3 [h]' },
       doc: { ...DOC, label: 'Rationale', placeholder: 'Why is this needed?' },
     },
     help: 'Something the system must do or be. Can contain sub-requirements.',
@@ -126,13 +127,46 @@ export const ELEMENTS = {
   },
   attribute: {
     names: { sysml: 'Value property', v2: 'attribute', guided: 'Property' }, abbr: 'val',
-    owners: ['partDef', 'interfaceDef', 'requirement', 'part'],
+    owners: ['partDef', 'interfaceDef', 'requirement', 'part', 'constraintDef'],
     props: {
+      type: { type: 'ref', label: 'Value type', kinds: ['valueType'] },
       value: { type: 'text', label: 'Value', default: '', placeholder: '16' },
       unit: { type: 'text', label: 'Unit', default: '', placeholder: 'Ah' },
       doc: DOC,
     },
-    help: 'A quantity with a unit, such as capacity = 16 Ah.',
+    help: 'A quantity with a unit, such as capacity = 16 Ah. Leave the value empty to have a parametric diagram compute it. In a constraint block, it is a parameter of the equation.',
+  },
+  valueType: {
+    names: { sysml: 'Value type', v2: 'attribute def', guided: 'Kind of quantity' }, abbr: 'vt', defaultLayer: 'l',
+    owners: ['package'],
+    props: { unit: { type: 'text', label: 'Unit', default: '', placeholder: 'Wh' }, doc: DOC },
+    help: 'A kind of quantity with its unit (Energy in Wh, Speed in m/s). Value properties typed by it use its unit unless they give their own.',
+  },
+  constraintDef: {
+    names: { sysml: 'Constraint block', v2: 'constraint def', guided: 'Equation' }, abbr: 'cb', defaultLayer: 'l',
+    owners: ['package'],
+    props: {
+      expr: { type: 'text', label: 'Equation', default: '', placeholder: 't = E / P' },
+      doc: DOC,
+    },
+    help: 'A reusable equation, such as t = E / P. Its value properties are its parameters, each with a unit. Use it in a block (a constraint property) and bind its parameters on a parametric diagram.',
+  },
+  constraint: {
+    names: { sysml: 'Constraint property', v2: 'constraint', guided: 'Equation used' }, abbr: 'cp',
+    owners: ['partDef'],
+    props: { type: { type: 'ref', label: 'Constraint block', kinds: ['constraintDef'] }, doc: DOC },
+    help: 'A constraint block used inside a block. Bind its parameters to the block\'s values on a parametric diagram.',
+  },
+  binding: {
+    names: { sysml: 'Binding connector', v2: 'binding', guided: 'Equals' }, abbr: 'bind', noMenu: true,
+    owners: ['partDef'],
+    props: {
+      constraint: { type: 'ref', label: 'Constraint', kinds: ['constraint'], required: true },
+      param: { type: 'ref', label: 'Parameter', kinds: ['attribute'], required: true },
+      value: { type: 'end', label: 'Value' },
+      doc: DOC,
+    },
+    help: 'Says a parameter of an equation equals a value property of the block (or of one of its parts).',
   },
   bdd: {
     names: { sysml: 'Block definition diagram', v2: 'general view', guided: 'Structure diagram' }, abbr: 'bdd', defaultLayer: 'l', diagram: true,
@@ -330,9 +364,20 @@ export const ELEMENTS = {
     props: { showMembers: { type: 'bool', label: 'Members', default: true }, showRoles: { type: 'bool', label: 'Relationship names on lines', default: true }, snap: { type: 'bool', label: 'Snap to grid and guides', default: true }, doc: DOC },
     help: 'Shows how the model is organized: packages, what they contain, and which import or depend on which.',
   },
+  par: {
+    names: { sysml: 'Parametric diagram', v2: 'parametric view', guided: 'Equations diagram' }, abbr: 'par', defaultLayer: 'l', diagram: true,
+    owners: ['partDef'],
+    props: {
+      showValues: { type: 'bool', label: 'Computed values', default: true },
+      showExpr: { type: 'bool', label: 'Equations', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows a block\'s equations (constraint properties) and the values they connect. Loom solves them as you edit: values without a number are computed, and a value that breaks an equation is flagged.',
+  },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
-    owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef', 'state', 'interaction', 'useCase'],
+    owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef', 'state', 'interaction', 'useCase', 'constraintDef'],
     props: { doc: { ...DOC, label: 'Text', placeholder: 'Write a note' } },
     help: 'A note attached to an element.',
   },
@@ -412,7 +457,7 @@ export const LAYERS = /** @type {const} */ ([
 ]);
 
 /** Kinds that are plumbing of a diagram rather than things to trace to. */
-export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment'];
+export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment', 'binding'];
 
 /** @param {string} kind */
 export const isRel = (kind) => kind in RELATIONSHIPS;

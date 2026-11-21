@@ -29,16 +29,16 @@ const depthOf = (m, el) => { let n = 0; for (let c = el.owner ? m.get(el.owner) 
 
 /** @param {Model} m @param {Element} el @param {Element} d @param {Notation} n @returns {NodeContent} */
 export function stmNodeContent(m, el, d, n) {
-  if (el.kind === 'region') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'region', under: true, depth: depthOf(m, el), linkable: false };
+  if (el.kind === 'region') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'region', under: true, depth: depthOf(m, el), linkable: false, tone: 'region' };
   const p = PSEUDO[el.props.stateKind];
-  if (p) return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: p.shape, fixed: { w: p.w, h: p.h }, label: new RegExp(`^(${p.label}|State) ?\\d*$`).test(el.name) ? '' : el.name };
+  if (p) return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: p.shape, fixed: { w: p.w, h: p.h }, label: new RegExp(`^(${p.label}|State) ?\\d*$`).test(el.name) ? '' : el.name, tone: el.props.stateKind };
   const rows = d.props.showActions === false ? [] : /** @type {const} */ (['entry', 'do', 'exit']).filter((k) => el.props[k]).map((k) => `${k} / ${el.props[k]}`);
   const composite = inner(m, el.id).length > 0;
   const layer = m.layerOf(el.id);
   return {
     stereo: n === 'guided' && composite ? 'Has states inside' : '', name: el.name,
     compartments: rows.length ? [{ title: '', rows }] : [], layerColor: layer ? LAYERS.find((l) => l.id === layer)?.color || null : null,
-    shape: 'round', under: composite, depth: depthOf(m, el),
+    shape: 'round', under: composite, depth: depthOf(m, el), tone: composite ? 'composite' : 'state',
   };
 }
 
@@ -48,7 +48,7 @@ export const transitionLabel = (t) => [t.props.trigger, t.props.guard ? `[${t.pr
 /** @param {Model} m @param {Set<string>} shown @returns {Edge[]} */
 export function stmEdgesFor(m, shown) {
   return m.byKind('transition').filter((t) => shown.has(t.props.from) && shown.has(t.props.to))
-    .map((t) => ({ id: t.id, kind: /** @type {const} */ ('flow'), from: t.props.from, to: t.props.to, label: transitionLabel(t), element: t.id }));
+    .map((t) => ({ id: t.id, kind: /** @type {const} */ ('flow'), from: t.props.from, to: t.props.to, label: transitionLabel(t), element: t.id, cls: t.props.trigger ? 'trigger' : 'completion' }));
 }
 
 /** Is `a` inside `b` (or the same)? @param {Model} m @param {string} a @param {string} b */

@@ -16,7 +16,7 @@ import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
  *   props: Record<string, any>,
  *   layout?: { nodes: Record<string, Rect> }, // diagrams only: where each shown element sits
  * }} Element
- * @typedef {{ x: number, y: number, w: number, h: number, c?: 1 }} Rect  c: collapsed (internal block diagrams)
+ * @typedef {{ x: number, y: number, w: number, h: number, c?: 1, fill?: string }} Rect  c: collapsed (internal block diagrams); fill: a color name (see FILLS)
  * @typedef {{ t: 'add', el: Element, index: number }
  *   | { t: 'del', id: string }
  *   | { t: 'set', id: string, name?: string, props?: Record<string, any> }
@@ -27,6 +27,8 @@ import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
  */
 
 export class ModelError extends Error {}
+/** Colors a box can be filled with on a diagram. */
+export const FILLS = ['blue', 'teal', 'green', 'amber', 'coral', 'pink', 'violet', 'slate'];
 
 /** Positions are whole pixels, so files stay small and diffs stay readable. @param {number} v */
 const round = (v) => Math.round(v);
@@ -225,14 +227,22 @@ export function createModel(opts = {}) {
     diagramsShowing(id) { return DIAGRAM_KINDS.flatMap((k) => api.byKind(k)).filter((d) => d.layout && Object.keys(d.layout.nodes).some((key) => key === id || keyIds(key).includes(id))); },
     /** Connectors whose ends go through or to `id`. @param {string} id @returns {Element[]} */
     connectorsTouching(id) {
-      return api.byKind('connector').filter((c) => [c.props.end1, c.props.end2].some((end) => end && (end.port === id || end.path.includes(id))));
+      const hits = (/** @type {any} */ end) => end && (end.port === id || end.path.includes(id));
+      return [...api.byKind('connector').filter((c) => hits(c.props.end1) || hits(c.props.end2)), ...api.byKind('binding').filter((b) => hits(b.props.value))];
+    },
+    /** A block and every block it specializes, nearest first. @param {string} id @returns {string[]} */
+    supersOf(id) {
+      const out = [id];
+      for (let i = 0; i < out.length; i++) for (const r of api.relsFrom(out[i])) if (r.kind === 'generalize' && r.target && !out.includes(r.target)) out.push(r.target);
+      return out;
     },
     /**
      * Check a connector end against the block that owns the connector.
      * @param {string} ownerId @param {import('./metamodel.js').End | null} end
+     * @param {boolean} [value] a binding's end: it ends at a value property, not a port
      * @returns {string | null} what is wrong, or null when it is fine
      */
-    checkEnd(ownerId, end) {
+    checkEnd(ownerId, end, value = false) {
       if (!end) return 'The end is missing';
       let block = ownerId;
       for (const pid of end.path) {
@@ -241,6 +251,14 @@ export function createModel(opts = {}) {
         if (p.owner !== block) return `${p.name} is not inside ${els.get(block)?.name || 'that block'}`;
         block = p.props.type;
         if (!block && (end.port || pid !== end.path[end.path.length - 1])) return `${p.name} has no type, so it has no ports or parts`;
+      }
+      if (value) {
+        const a = end.port ? els.get(end.port) : null;
+        if (!a || a.kind !== 'attribute') return 'A binding must end at a value property';
+        const last = end.path[end.path.length - 1];
+        const homes = [...(block ? api.supersOf(block) : []), ...(last ? [last] : [])];
+        if (!homes.includes(/** @type {string} */ (a.owner))) return `${a.name} is not a value of ${els.get(last || block)?.name || 'that block'}`;
+        return null;
       }
       if (end.port) {
         const port = els.get(end.port);
@@ -393,9 +411,10 @@ export function createModel(opts = {}) {
         const isPort = id.includes('#');
         const rect = /** @type {Rect} */ ({ x: round(r.x), y: round(r.y), w: Math.max(isPort ? 8 : 40, round(r.w)), h: Math.max(isPort ? 8 : 30, round(r.h)) });
         if (r.c) rect.c = 1;
+        if (r.fill && FILLS.includes(r.fill)) rect.fill = r.fill;
         if (![rect.x, rect.y, rect.w, rect.h].every(Number.isFinite)) throw new ModelError('A position must be a number');
         const old = d.layout.nodes[id];
-        if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h || (old.c || 0) !== (rect.c || 0)) changes[id] = rect;
+        if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h || (old.c || 0) !== (rect.c || 0) || (old.fill || '') !== (rect.fill || '')) changes[id] = rect;
       }
       if (Object.keys(changes).length) run({ t: 'lay', id: diagramId, nodes: changes });
     },
@@ -423,7 +442,7 @@ export function createModel(opts = {}) {
     for (const [k, v] of Object.entries(props)) {
       const p = spec[k];
       if (p && p.type === 'end' && v !== null) {
-        const bad = ownerId ? api.checkEnd(ownerId, v) : 'A connector needs an owner';
+        const bad = ownerId ? api.checkEnd(ownerId, v, kind === 'binding') : 'A connector needs an owner';
         if (bad) throw new ModelError(bad);
         continue;
       }

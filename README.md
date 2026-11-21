@@ -12,7 +12,22 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.7.0: behavior diagrams)
+## What works today (0.8.0: analysis and simulation)
+
+- **Run behavior diagrams to check them.** Activity, state machine and sequence diagrams have a **Run** (or **Play**) button that opens a run panel beside the diagram, and the diagram lights up as it runs:
+  - **Activities** run as tokens. An action runs when every flow into it has a token; forks copy tokens, joins wait for all of them, decisions take the way whose guard holds (guards such as `battery > 20%` are worked out from values you type in the panel) or ask you which way. Run, step, reset, three speeds.
+  - **State machines** start at their initial state and follow completion transitions by themselves. Send events from the panel, or press Run and the machine sends events itself, trying ones that lead somewhere new first. Exit actions, effects and entry actions run in the right order; composite states, regions, choice and history states work. Guards Loom cannot evaluate (`preflight ok`) are switches.
+  - **Sequence diagrams** play message by message; at an alt, opt or loop the guard decides, or you choose.
+  - **Check** explores every way the diagram can run and lists what is wrong, each item a link to the element: deadlocks (a join after a decision), steps that can never run, tokens lost or piling up, runs that never finish, decisions without guards, unreachable states, dead-end states, ambiguous transitions, replies with no call, empty fragments, and messages the receiver's state machine never accepts.
+- **Color in behavior diagrams.** Actions, states, use cases, control nodes and pseudo-states each have their own color (initial green, final red, decisions amber, forks and joins violet); lanes and packages take their layer's color; object flows, transition labels, fragments (by operator) and messages (by kind) are colored too. Light and dark themes. Any box can be given its own fill with **Color** (blue, teal, green, amber, coral, pink, violet, slate), kept per diagram.
+- **Units and value types.** Value properties understand units: SI with prefixes, compound units (`km/h`, `m/s^2`, `kg·m²`, `W/kg`), hours, minutes, percent, degrees, rpm, feet, knots, psi, °C and more. A **value type** (Energy in Wh, Duration in h) gives its values a unit. The inspector says what each value measures and flags units Loom does not know.
+- **Constraint blocks and parametric diagrams.** A constraint block holds an equation (`t = E / P`); writing it creates its parameters. Use it in a block, and on the **parametric diagram** drag from a value to the equation to bind a parameter, through parts as deep as you like (`propulsion.battery.usableEnergy`).
+- **The solver** works as you edit. Values without a number are computed (any one can be the unknown: give endurance and it solves for power), equations that share unknowns are solved together, and everything is checked: a value that breaks an equation, an equation that adds hours to kilograms, or a binding that joins a charge to an energy is reported, on the diagram and in a status pill, instead of giving a wrong answer.
+- **Live verification.** A requirement can carry a **check**, such as `endurance >= 3 [h]`, evaluated against the values (given or computed) of what satisfies it. A met check counts as passed verification and a broken one as failed, everywhere: the inspector, the requirements table, the RFLP trace and the Systems V. Change the design and the requirement turns red at once.
+- The Kestrel sample now has value types, two equations (battery energy and endurance), live checks on the endurance and usable-energy requirements, and two parametric diagrams.
+
+### 0.7.0: behavior diagrams
+
 
 - **Activity diagrams** for any function: its steps (sub-functions), initial, final and flow-final nodes, decisions, merges, forks and joins, joined by control and object flows with guards and items. Drag from a step's handle to the next to add a flow. **Swimlanes are allocation**: each lane is a block, an action in a lane is allocated to it, and dragging an action to another lane changes the allocation in the model (adding or resizing a lane never does). Moving a lane moves what is in it. Tidy layout runs the flow top to bottom from the initial node, each step in its lane.
 - **State machine diagrams** for any block: states with entry / do / exit, initial, final, choice and history pseudo-states, transitions labeled *trigger [guard] / effect*, composite states and orthogonal regions. Drag a state into another to nest it in the model, out to un-nest it; moving a composite moves its states. Tidy lays composites out around their insides.
@@ -110,7 +125,7 @@ package Logical {
 | `in port name : ~Type;` | a port: direction, type, `~` for conjugated |
 | `attribute name = 16 [Ah];` | a value property with a unit |
 | `connect a.p to b.q;` / `connection Name connect …` | a connector, by part and port names inside the block |
-| `view Name { @Loom { kind = "bdd"; } }` | a diagram, table or matrix (`bdd`, `ibd`, `req`, `table`, `matrix`) |
+| `view Name { @Loom { kind = "bdd"; } }` | a diagram, table or matrix (`bdd`, `ibd`, `req`, `act`, `stm`, `sd`, `uc`, `pkg`, `par`, `table`, `matrix`) |
 | `comment Name /* text */` | a note |
 | `satisfy X;` `verify X;` `refine X;` `derive X;` `copy X;` `allocate to X;` `dependency to X;` | relationships from the element they are written in |
 | `start S;` `done F;` `terminate T;` `decide D;` `merge M;` `fork F;` `join J;` | an activity's control nodes |
@@ -119,6 +134,9 @@ package Logical {
 | `transition first A accept "trigger" if "guard" do "effect" then B;` | a transition |
 | `interaction I { lifeline a : Part; message 'call()' from a to b; fragment F { operand O { … } } }` | a scenario for a sequence diagram |
 | `actor A;` `use case U { include V; extend W; }` `participate in U;` `import P::*;` | use cases and package imports |
+| `attribute def Energy { @Loom { unit = "Wh"; } }` / `attribute e : Energy = 675 [Wh];` | a value type / a value property typed by it |
+| `constraint def Endurance { attribute t [h]; … @Loom { expr = "t = E / P"; } }` | a constraint block: its parameters and equation |
+| `constraint range : Endurance;` `bind range.E = propulsion.battery.usableEnergy;` | a constraint property, and a binding of its parameter to a value |
 
 Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nearest element with that name; where two share one, qualify it (`Logical::'Battery Pack'`). Line notes (`// …`) are allowed and ignored.
 
@@ -178,6 +196,16 @@ src/canvas/stm.js            state machine diagrams: states, nesting by dragging
 src/canvas/uc.js             use case diagrams (subjects by dragging) and package diagrams
 src/canvas/sdview.js         sequence diagrams, laid out from message order
 src/canvas/req.js            what a requirement diagram shows (requirement boxes, «stereotyped» arrows)
+src/canvas/par.js            parametric diagrams: equations, values by path, bindings, layout
+src/analysis/units.js        units: parsing, dimensions, conversion
+src/analysis/expr.js         the expression language of equations, checks and guards
+src/analysis/solver.js       the parametric solver
+src/analysis/verify.js       live requirement checks
+src/sim/activity.js          running and checking activities (tokens)
+src/sim/statemachine.js      running and checking state machines
+src/sim/sequence.js          playing and checking scenarios
+src/sim/adapters.js          each engine as the run panel sees it, and what lights up
+src/ui/runpanel.js           the run panel
 src/model/trace.js           requirement IDs, levels, coverage and the RFLP thread
 src/views/vhome.js           the Systems V
 src/views/trace.js           the RFLP trace lanes

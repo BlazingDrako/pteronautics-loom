@@ -95,6 +95,7 @@ export function buildSnapshot(base, inputs, o = {}) {
   function nameOf(n, kind) {
     if (n.name) return n.name;
     if (kind === 'connector') return `${n.end1?.segs.join('.')} → ${n.end2?.segs.join('.')}`;
+    if (kind === 'binding') return `${n.end1?.segs.join('.')} = ${n.end2?.segs.join('.')}`;
     if ((kind === 'flow' || kind === 'transition') && n.refs) return `${n.refs.from.parts.at(-1)} → ${n.refs.to.parts.at(-1)}`;
     if (kind === 'controlNode') return ({ initial: 'Initial', final: 'Final', flowFinal: 'Flow final', decision: 'Decision', merge: 'Merge', fork: 'Fork', join: 'Join' })[n.fields?.nodeKind || ''] || 'Control node';
     if (kind === 'requirement' && n.short) return n.short;
@@ -255,6 +256,49 @@ export function buildSnapshot(base, inputs, o = {}) {
       e.props.end1 = endOf(/** @type {any} */ (n.end1), /** @type {string} */ (e.owner));
       e.props.end2 = endOf(/** @type {any} */ (n.end2), /** @type {string} */ (e.owner));
     }
+  }
+  // bindings last: they need constraint types and generalizations
+  for (const { node: n, id } of placed) {
+    const e = /** @type {Element} */ (els.get(id));
+    if (e.kind !== 'binding') continue;
+    const [cName, pName] = /** @type {any} */ (n.end1).segs;
+    const block = /** @type {string} */ (e.owner);
+    const c = supersIn(block).flatMap((b) => tree.children(b)).find((x) => x.kind === 'constraint' && x.name === cName);
+    if (!c) throw new BuildError(`${els.get(block)?.name} has no constraint named ${cName}`, /** @type {any} */ (n.end1).line, /** @type {any} */ (n.end1).col);
+    const def = c.props.type ? els.get(c.props.type) : null;
+    const prm = def ? tree.children(def.id).find((x) => x.kind === 'attribute' && x.name === pName) : null;
+    if (!prm) throw new BuildError(def ? `${def.name} has no parameter named ${pName}` : `${cName} has no constraint block, so it has no parameters`, /** @type {any} */ (n.end1).line, /** @type {any} */ (n.end1).col);
+    e.props.constraint = c.id;
+    e.props.param = prm.id;
+    e.props.value = valueEndOf(/** @type {any} */ (n.end2), block);
+  }
+
+  /** A block and the blocks it specializes. @param {string} b */
+  function supersIn(b) {
+    const out = [b];
+    for (let i = 0; i < out.length; i++) for (const r of rels) if (r.kind === 'generalize' && r.source === out[i] && r.target && !out.includes(r.target)) out.push(r.target);
+    return out;
+  }
+  /** A binding's value: part names down from the block, then a value property. @param {import('./parser.js').EndPath} p @param {string} blockId */
+  function valueEndOf(p, blockId) {
+    /** @type {string[]} */
+    const path = [];
+    let block = blockId;
+    for (let i = 0; i < p.segs.length; i++) {
+      const name = p.segs[i], last = i === p.segs.length - 1;
+      const homes = [...supersIn(block), ...(path.length ? [path[path.length - 1]] : [])];
+      if (last) {
+        const a = homes.flatMap((b) => tree.children(b)).find((c) => c.kind === 'attribute' && c.name === name);
+        if (!a) throw new BuildError(`${els.get(block)?.name || 'That block'} has no value named ${name}`, p.line, p.col);
+        return { path, port: a.id };
+      }
+      const part = supersIn(block).flatMap((b) => tree.children(b)).find((c) => c.kind === 'part' && c.name === name);
+      if (!part) throw new BuildError(`${els.get(block)?.name || 'That block'} has no part named ${name}`, p.line, p.col);
+      if (!part.props.type) throw new BuildError(`${name} has no type, so it has no values`, p.line, p.col);
+      path.push(part.id);
+      block = part.props.type;
+    }
+    throw new BuildError('A binding needs a value', p.line, p.col);
   }
 
   /** A connector end: part names down from the owning block, then maybe a port. @param {import('./parser.js').EndPath} p @param {string} blockId */

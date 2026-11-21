@@ -22,6 +22,8 @@ import { FONTS, textWidth, wrapLines } from './measure.js';
  *   fixed?: { w: number, h: number }, // small shapes keep this size
  *   under?: boolean, depth?: number,  // a container drawn behind lines and boxes
  *   label?: string, glyph?: string, linkable?: boolean,
+ *   tone?: string,                    // a color role for the stylesheet (action, state, initial, decision…)
+ *   tint?: string,                    // a CSS color the box is tinted with (a lane's or package's layer)
  * }} NodeContent
  */
 /**
@@ -29,6 +31,7 @@ import { FONTS, textWidth, wrapLines } from './measure.js';
  *   id: string,                       // stable key: the part id or the relationship id
  *   kind: 'composition' | 'generalization' | 'containment' | 'dependency' | 'flow' | 'assoc',
  *   dashed?: boolean,                 // a dashed line (include, extend, import)
+ *   cls?: string,                     // extra classes for the stylesheet (object flows, bindings…)
  *   from: string, to: string,         // composition: whole → part type; generalization: specific → general;
  *                                     // containment: container → contained; dependency: client → supplier
  *   label?: string,                   // role name and multiplicity at the part end; «stereotype» on dependencies

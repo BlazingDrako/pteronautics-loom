@@ -96,10 +96,11 @@ commands.add({ id: 'view.home', title: 'Open the Systems V', group: 'Views', key
 commands.add({ id: 'view.trace', title: 'Open the RFLP trace', group: 'Views', keywords: ['traceability', 'coverage', 'thread', 'gaps', 'lanes'], enabled: inProject, run: () => ws?.openDiagram('v:trace') });
 commands.add({ id: 'view.table', title: 'Open the requirements table', group: 'Views', keywords: ['requirements', 'list', 'grid', 'csv', 'excel'], enabled: inProject, run: () => ws?.openOrCreate('table') });
 commands.add({ id: 'view.matrix', title: 'Open the satisfy matrix', group: 'Views', keywords: ['matrix', 'dependency', 'satisfy', 'coverage'], enabled: inProject, run: () => ws?.openOrCreate('matrix') });
-for (const [k, words] of /** @type {[string, string[]][]} */ ([['act', ['activity', 'flow', 'swimlane', 'behavior']], ['stm', ['state machine', 'states', 'transitions', 'behavior']], ['sd', ['sequence', 'messages', 'scenario', 'interaction']], ['uc', ['use case', 'actors', 'goals']], ['pkg', ['package', 'organization', 'imports']]])) {
+for (const [k, words] of /** @type {[string, string[]][]} */ ([['act', ['activity', 'flow', 'swimlane', 'behavior']], ['stm', ['state machine', 'states', 'transitions', 'behavior']], ['sd', ['sequence', 'messages', 'scenario', 'interaction']], ['uc', ['use case', 'actors', 'goals']], ['pkg', ['package', 'organization', 'imports']], ['par', ['parametric', 'equations', 'constraints', 'solver', 'analysis']]])) {
   commands.add({ id: `diagram.new.${k}`, group: 'Diagram', get title() { return `New ${kindName(k, notation())}`; }, keywords: [...words, 'create'], enabled: () => inProject() && (k === 'sd' || !!ws?.canNew(k)), run: () => ws?.newDiagram(k) });
 }
 const inDiagram = () => !!ws?.activeView();
+commands.add({ id: 'diagram.run', title: 'Run the diagram (activity, state machine or sequence)', group: 'Diagram', keywords: ['simulate', 'simulation', 'play', 'execute', 'tokens', 'check', 'verify'], enabled: () => !!ws?.runnable(), run: () => ws?.runnable()?.toggleRun() });
 commands.add({ id: 'diagram.fit', title: 'Fit the diagram to the window', group: 'Diagram', keywords: ['zoom', 'all'], enabled: inDiagram, run: () => ws?.activeView()?.fit() });
 commands.add({ id: 'diagram.zoomIn', title: 'Zoom in', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomIn() });
 commands.add({ id: 'diagram.zoomOut', title: 'Zoom out', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomOut() });

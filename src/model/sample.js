@@ -5,6 +5,7 @@ import { packIbd } from '../canvas/ibd.js';
 import { populateAct } from '../canvas/act.js';
 import { populateStm } from '../canvas/stm.js';
 import { populateUc, populatePkg } from '../canvas/uc.js';
+import { populatePar } from '../canvas/par.js';
 
 /** @param {import('./model.js').Model} m */
 export function buildKestrel(m) {
@@ -120,6 +121,7 @@ export function buildKestrel(m) {
     tx.place(d, packIbd(m, av));
   });
   buildBehavior(m);
+  buildAnalysis(m);
   m.clear();
   return m;
 }
@@ -216,5 +218,64 @@ function buildBehavior(m) {
     tx.link('import', F, R); tx.link('import', L, R); tx.link('import', L, F); tx.link('import', P, L);
     const pkgd = tx.create('pkg', { owner: L, name: 'Model organization' });
     populatePkg(m, tx, pkgd, 'sysml', [R, F, L, P]);
+  });
+}
+
+/** Value types, two equations, live checks on the endurance and energy requirements. @param {import('./model.js').Model} m */
+function buildAnalysis(m) {
+  const L = /** @type {string} */ (m.layers().find((l) => l.layer === 'l')?.id);
+  const by = (/** @type {string} */ name, /** @type {string} */ kind) => /** @type {string} */ (m.all().find((e) => e.name === name && (!kind || e.kind === kind))?.id);
+  m.transact('Kestrel analysis', (tx) => {
+    const av = by('Kestrel Air Vehicle', 'partDef'), batt = by('Battery Pack', 'partDef'), store = by('Energy Storage', 'partDef');
+    const valueOf = (/** @type {string} */ block, /** @type {string} */ name) => /** @type {string} */ (m.children(block).find((c) => c.kind === 'attribute' && c.name === name)?.id);
+    // kinds of quantity
+    const vt = tx.create('package', { owner: L, name: 'Value types' });
+    const type = (/** @type {string} */ name, /** @type {string} */ unit) => tx.create('valueType', { owner: vt, name, props: { unit } });
+    const Energy = type('Energy', 'Wh'), Power = type('Power', 'W'), Duration = type('Duration', 'h'), Charge = type('Charge', 'Ah'), Voltage = type('Voltage', 'V'), Mass = type('Mass', 'kg');
+    tx.setProps(valueOf(batt, 'capacity'), { type: Charge });
+    tx.setProps(valueOf(batt, 'mass'), { type: Mass });
+    tx.setProps(valueOf(store, 'usableEnergy'), { type: Energy });
+    tx.create('attribute', { owner: batt, name: 'nominalVoltage', props: { type: Voltage, value: '44.4', unit: 'V' } });
+    tx.create('attribute', { owner: batt, name: 'depthOfDischarge', props: { value: '95', unit: '%' } });
+    tx.create('attribute', { owner: av, name: 'endurance', props: { type: Duration, unit: 'h' } });
+    tx.create('attribute', { owner: av, name: 'cruisePower', props: { type: Power, value: '210', unit: 'W' } });
+
+    // the equations
+    const an = tx.create('package', { owner: L, name: 'Analysis' });
+    const eqn = (/** @type {string} */ name, /** @type {string} */ expr, /** @type {[string, string][]} */ params) => {
+      const d = tx.create('constraintDef', { owner: an, name, props: { expr } });
+      for (const [p, unit] of params) tx.create('attribute', { owner: d, name: p, props: { unit } });
+      return d;
+    };
+    const cbEnergy = eqn('Battery energy', 'E = C * V * dod', [['E', 'Wh'], ['C', 'Ah'], ['V', 'V'], ['dod', '']]);
+    const cbRange = eqn('Endurance', 't = E / P', [['t', 'h'], ['E', 'Wh'], ['P', 'W']]);
+    const param = (/** @type {string} */ def, /** @type {string} */ name) => /** @type {string} */ (m.children(def).find((c) => c.name === name)?.id);
+    /** @param {string} block @param {string} use @param {string} def @param {string} p @param {string[]} path part names @param {string} value */
+    const bind = (block, use, def, p, path, value) => {
+      /** @type {string[]} */
+      const ids = [];
+      let b = block;
+      for (const name of path) { const part = /** @type {any} */ (m.children(b).find((c) => c.kind === 'part' && c.name === name)); ids.push(part.id); b = part.props.type; }
+      const attr = m.supersOf(b).map((x) => valueOf(x, value)).find(Boolean);
+      tx.create('binding', { owner: block, name: `${m.get(use)?.name}.${p} = ${[...path, value].join('.')}`, props: { constraint: use, param: param(def, p), value: { path: ids, port: attr } } });
+    };
+    const energyUse = tx.create('constraint', { owner: batt, name: 'energy', props: { type: cbEnergy } });
+    bind(batt, energyUse, cbEnergy, 'E', [], 'usableEnergy');
+    bind(batt, energyUse, cbEnergy, 'C', [], 'capacity');
+    bind(batt, energyUse, cbEnergy, 'V', [], 'nominalVoltage');
+    bind(batt, energyUse, cbEnergy, 'dod', [], 'depthOfDischarge');
+    const rangeUse = tx.create('constraint', { owner: av, name: 'range', props: { type: cbRange } });
+    bind(av, rangeUse, cbRange, 't', [], 'endurance');
+    bind(av, rangeUse, cbRange, 'E', ['propulsion', 'battery'], 'usableEnergy');
+    bind(av, rangeUse, cbRange, 'P', [], 'cruisePower');
+
+    // requirements checked live against the design
+    const endur = by('Endurance', 'requirement'), energy = by('Usable energy', 'requirement');
+    tx.setProps(endur, { check: 'endurance >= 3 [h]' });
+    tx.setProps(energy, { check: 'usableEnergy >= 650 [Wh]' });
+    tx.link('satisfy', av, endur);
+
+    populatePar(m, tx, tx.create('par', { owner: av, name: 'Endurance analysis' }));
+    populatePar(m, tx, tx.create('par', { owner: batt, name: 'Battery energy' }));
   });
 }

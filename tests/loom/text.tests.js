@@ -69,7 +69,7 @@ export async function textTests(log) {
   log('Kestrel round-trips: print → parse → build gives the same model, ids and all', canon(rebuilt) === canon(snapshot(k)));
   log('Printing is canonical: the same model always prints the same text', printModel(k).every((f, i) => f.text === files[i].text));
   const logical = /** @type {string} */ (files.find((f) => f.layer === 'l')?.text);
-  log('The text reads like SysML v2', logical.includes("part def 'Battery Pack' :> 'Energy Storage' {") && logical.includes('attribute capacity = 16 [Ah];') && logical.includes("out port pwrOut : 'DC Power 48 V';") && logical.includes("satisfy 'Usable energy';") && logical.includes('connect battery.pwrOut to esc.pwrIn {'));
+  log('The text reads like SysML v2', logical.includes("part def 'Battery Pack' :> 'Energy Storage' {") && logical.includes('attribute capacity : Charge = 16 [Ah];') && logical.includes("out port pwrOut : 'DC Power 48 V';") && logical.includes("satisfy 'Usable energy';") && logical.includes('connect battery.pwrOut to esc.pwrIn {'));
   const v0 = k.version();
   const st0 = applySnapshot(k, rebuilt, 'Nothing');
   log('Applying unchanged text changes nothing and adds no undo step', st0.created + st0.removed + st0.changed === 0 && k.version() === v0 && !k.canUndo());
@@ -88,7 +88,7 @@ export async function textTests(log) {
   const charger = k.all().find((e) => e.name === 'Charger');
   log('New elements in text are created, with relationships to other layers', !!charger && k.relsFrom(charger.id).some((r) => r.kind === 'satisfy' && k.get(/** @type {string} */ (r.target))?.name === 'Usable energy'));
   applyLayerText(k, L, logical);
-  log('Taking it out of the text deletes it, with its relationships', !k.all().some((e) => e.name === 'Charger') && k.byKind('satisfy').length === 3);
+  log('Taking it out of the text deletes it, with its relationships', !k.all().some((e) => e.name === 'Charger') && k.byKind('satisfy').length === 4);
   // move a block into a new package: same element
   const esc = /** @type {any} */ (k.all().find((e) => e.name === 'ESC'));
   const moved = logical.replace(/    part def ESC \{[\s\S]*?\n    \}\n/, (blk) => `    package Drives {\n${blk.split('\n').map((l) => (l ? `    ${l}` : l)).join('\n')}    }\n`);

@@ -18,9 +18,9 @@ const canShowUc = (el) => !!el && (el.kind === 'actor' || el.kind === 'useCase' 
 
 /** @param {Model} m @param {Element} el @param {Element} _d @param {Notation} n @returns {NodeContent} */
 export function ucNodeContent(m, el, _d, n) {
-  if (el.kind === 'actor') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'actor' };
-  if (el.kind === 'useCase') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'ellipse' };
-  return { stereo: n === 'guided' ? 'The system' : n === 'v2' ? '«part def»' : '«block»', name: el.name, compartments: [], layerColor: null, shape: 'boundary', under: true, depth: 0, linkable: false };
+  if (el.kind === 'actor') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'actor', tone: 'actor' };
+  if (el.kind === 'useCase') return { stereo: '', name: el.name, compartments: [], layerColor: null, shape: 'ellipse', tone: 'usecase' };
+  return { stereo: n === 'guided' ? 'The system' : n === 'v2' ? '«part def»' : '«block»', name: el.name, compartments: [], layerColor: null, shape: 'boundary', under: true, depth: 0, linkable: false, tone: 'subject' };
 }
 
 /** @param {Model} m @param {Set<string>} shown @returns {Edge[]} */
@@ -184,7 +184,7 @@ export function pkgNodeContent(m, el, d, n) {
     name: el.name,
     compartments: d.props.showMembers === false || !rows.length ? [] : [{ title: n === 'guided' ? 'Contains' : 'members', rows }],
     layerColor: layer ? LAYERS.find((l) => l.id === layer)?.color || null : null,
-    shape: 'folder',
+    shape: 'folder', tone: 'pkg', tint: (layer ? LAYERS.find((l) => l.id === layer)?.color : undefined) || undefined,
   };
 }
 

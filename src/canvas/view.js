@@ -15,13 +15,21 @@ import { actKind } from './act.js';
 import { stmKind } from './stm.js';
 import { ucKind, pkgKind } from './uc.js';
 import { wrapLines } from './measure.js';
+import { parKind } from './par.js';
+import { createRunPanel, emptyMarks } from '../ui/runpanel.js';
+import { activityAdapter, machineAdapter } from '../sim/adapters.js';
 
 /** Diagram kinds drawn by this canvas. */
-const KINDS = /** @type {Record<string, any>} */ ({ bdd: bddKind, req: reqKind, act: actKind, stm: stmKind, uc: ucKind, pkg: pkgKind });
+const KINDS = /** @type {Record<string, any>} */ ({ bdd: bddKind, req: reqKind, act: actKind, stm: stmKind, uc: ucKind, pkg: pkgKind, par: parKind });
+/** Diagram kinds that can be run, and how. */
+const RUNS = /** @type {Record<string, (m: any, d: any) => import('../ui/runpanel.js').RunAdapter>} */ ({ act: activityAdapter, stm: machineAdapter });
+/** The element a layout key stands for: its last id ("p1/p2/attr" is the value attr). @param {string} key */
+const lastId = (key) => key.slice(key.lastIndexOf('/') + 1);
 import { routeAll, pathData } from './route.js';
 import { layered } from './layout.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { ELEMENTS, RELATIONSHIPS, kindName } from '../model/metamodel.js';
+import { FILLS } from '../model/model.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -48,6 +56,19 @@ const cameras = new Map();
 let fontsReady = false;
 if (typeof document !== 'undefined' && document.fonts) document.fonts.ready.then(() => { fontsReady = true; resetMeasureCache(); });
 
+/** The point a fraction of the way along a polyline. @param {{ x: number, y: number }[]} pts @param {number} t */
+function along(pts, t) {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  let left = total * t;
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    if (left <= l && l > 0) return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * (left / l), y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * (left / l) };
+    left -= l;
+  }
+  return pts[pts.length - 1];
+}
+
 /** @param {string} t */
 const esc = (t) => t.replace(/[&<>"]/g, (c) => /** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -58,6 +79,13 @@ export function createDiagramView(ctx) {
   /** What this kind of diagram shows and how. @type {import('./bdd.js').DiagramKind} */
   const K = KINDS[/** @type {string} */ (diagram()?.kind)] || bddKind;
   const { canShow } = K;
+  /** The element behind a box (a parametric diagram keys values by their path). @param {string} key */
+  const elOf = (key) => model.get(lastId(key));
+  /** Run marks: what the run panel lights up. */
+  let marks = emptyMarks();
+  let marksStamp = 0;
+  /** @type {ReturnType<typeof createRunPanel> | null} */
+  let runPanel = null;
   /** @type {Camera} */
   const cam = cameras.get(diagramId) || { x: 0, y: 0, k: 1 };
   cameras.set(diagramId, cam);
@@ -94,9 +122,13 @@ export function createDiagramView(ctx) {
     h('p', {}, K.empty));
   const stage = h('div', { class: 'dstage', tabindex: '0', role: 'application', 'aria-roledescription': 'diagram' }, svg, empty, live, tip);
   const zoomLabel = h('span', { class: 'dzoom mono' });
+  /** A diagram's verdict (a parametric diagram: solved, or its problems). */
+  const statusPill = K.status ? h('button', { class: 'pill dstatus', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => statusMenu(/** @type {HTMLElement} */ (e.currentTarget)) }) : null;
+  let statusVersion = -1;
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Diagram tools' },
     K.add.map((/** @type {any} */ a) => h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': a.menu ? 'menu' : undefined, title: a.title,
       onclick: (/** @type {Event} */ ev) => {
+        if (a.create) { createWith(a); return; }
         if (!a.menu) { addNew(a.kind, a.props); return; }
         const items = a.menu(model, diagram(), ctx.notation());
         popupMenu(/** @type {HTMLElement} */ (ev.currentTarget), items.length ? items.map((/** @type {any} */ it) => ({ label: it.label, hint: it.hint, disabled: it.disabled, run: () => (it.place ? placeExisting(it.place) : addNew(it.kind || a.kind, it.props)) })) : [{ label: a.empty || 'Nothing to add', disabled: true, run: () => {} }], { title: a.label });
@@ -105,16 +137,75 @@ export function createDiagramView(ctx) {
     h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: K.kind === 'req' ? 'Show what the selection breaks down into, comes from, and is satisfied, refined or verified by' : 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
     h('button', { class: 'btn sm', type: 'button', onclick: () => tidy(), title: `Tidy layout (${formatKeys('Shift+L')})` }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
+    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Color the selected boxes (on this diagram only)', onclick: (/** @type {Event} */ e) => colorMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('palette'), 'Color'),
+    RUNS[/** @type {string} */ (diagram()?.kind)] ? h('button', { class: 'btn sm run-btn', type: 'button', title: 'Run this diagram to see it work, and check it for problems', onclick: () => toggleRun() }, icon('play'), 'Run') : null,
     h('span', { style: { flex: '1' } }),
+    statusPill,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (−)', onclick: () => zoomBy(1 / 1.25) }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (+)', onclick: () => zoomBy(1.25) }, icon('plus')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')));
-  const el = h('div', { class: 'dview' }, toolbar, stage);
+  const dbody = h('div', { class: 'dbody' }, stage);
+  const el = h('div', { class: 'dview k-' + diagram()?.kind }, toolbar, dbody);
+
+  // ---------- running ----------
+  function toggleRun(open = !runPanel) {
+    const d = diagram();
+    const make = d ? RUNS[d.kind] : null;
+    if (!open || !make) {
+      runPanel?.dispose(); runPanel?.el.remove(); runPanel = null;
+      marks = emptyMarks(); marksStamp++; invalidate();
+      return;
+    }
+    if (runPanel) return;
+    runPanel = createRunPanel({
+      adapter: () => make(model, /** @type {any} */ (diagram())),
+      onMarks: (mk) => { marks = mk; marksStamp++; invalidate(); },
+      onSelect: (ids) => {
+        const node = ids.find((id) => layout()[id]);
+        if (node) { setSel(new Set([node])); revealIfHidden(node); }
+        else if (ids[0]) { ctx.select(ids[0]); invalidate(); }
+      },
+      onClose: () => toggleRun(false),
+    });
+    dbody.append(runPanel.el);
+    requestAnimationFrame(() => fit());
+  }
+  /** The problems behind the status pill. @param {HTMLElement} anchor */
+  function statusMenu(anchor) {
+    const st = K.status(model, diagram());
+    if (!st.problems.length) { toast(st.text); return; }
+    popupMenu(anchor, st.problems.slice(0, 30).map((/** @type {any} */ p) => ({ label: p.message, hint: p.level === 'error' ? '✕' : '!', run: () => { if (p.id) ctx.select(p.id); } })), { title: st.text });
+  }
+  /** Make something with a tool's own recipe (a new equation), place it and select it. @param {any} a */
+  function createWith(a) {
+    const d = diagram();
+    if (!d) return;
+    const sz = K.newSize?.(a.kind) || { w: 200, h: 60 };
+    const { w, h: hh } = size();
+    const c = toWorld(w / 2, hh / 2);
+    /** @type {{ id: string, select?: string }} */
+    let made = { id: '' };
+    if (!ctx.edit(a.label, (tx) => { made = a.create(model, tx, d); tx.place(diagramId, { [made.id]: freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, sz.w, sz.h) }); })) return;
+    setSel(new Set([made.id]), false);
+    ctx.select(made.select || made.id);
+    invalidate();
+  }
+  /** Give the selected boxes a fill color, or take it away. @param {HTMLElement} anchor */
+  function colorMenu(anchor) {
+    if (!sel.size) { toast('Select one or more boxes first'); return; }
+    const set = (/** @type {string | null} */ fill) => {
+      /** @type {Record<string, Rect>} */
+      const patch = {};
+      for (const id of sel) { const r = { ...layout()[id] }; if (fill) r.fill = fill; else delete r.fill; patch[id] = r; }
+      commit(fill ? `Color ${fill}` : 'Default color', patch);
+    };
+    popupMenu(anchor, [{ label: 'Default', hint: '', run: () => set(null) }, ...FILLS.map((f) => ({ label: f[0].toUpperCase() + f.slice(1), hint: '●', swatch: f, run: () => set(f) }))], { title: 'Fill on this diagram' });
+  }
 
   // ---------- geometry ----------
   const layout = () => /** @type {Record<string, Rect>} */ (diagram()?.layout?.nodes || {});
-  const shownIds = () => Object.keys(layout()).filter((id) => canShow(model.get(id)));
+  const shownIds = () => Object.keys(layout()).filter((id) => canShow(elOf(id)));
   // What each box shows is cached per element and recomputed only when a change touches it
   // (the element, something inside it, or a type its parts refer to).
   /** @type {Map<string, { content: import('./bdd.js').NodeContent, min: { w: number, h: number }, wrap: boolean, heights: Map<number, number>, stamp: number }>} */
@@ -129,7 +220,7 @@ export function createDiagramView(ctx) {
   function content(id) {
     const hit = contentCache.get(id);
     if (hit) return hit;
-    const c = K.nodeContent(model, /** @type {any} */ (model.get(id)), /** @type {any} */ (diagram()), ctx.notation());
+    const c = K.nodeContent(model, /** @type {any} */ (elOf(id)), /** @type {any} */ (diagram()), ctx.notation(), id);
     const v = { content: c, min: naturalSize(c), wrap: wraps(c), heights: new Map(), stamp: ++stamp };
     contentCache.set(id, v);
     return v;
@@ -144,6 +235,8 @@ export function createDiagramView(ctx) {
   }
   const unsubModel = model.subscribe((e) => {
     geomDirty = true;
+    if (runPanel) runPanel.refresh();
+    if (K.volatile) { contentCache.clear(); return; }
     if (e.ids.size > 300) { contentCache.clear(); return; }
     for (const id of e.ids) {
       const el = model.get(id);
@@ -209,7 +302,10 @@ export function createDiagramView(ctx) {
     const { content: c } = content(id);
     const selected = sel.has(id);
     const shape = c.shape || 'box';
-    const g = s('g', { class: `node shape-${shape}` + (selected ? ' sel' : '') + (c.under ? ' under' : ''), 'data-id': id, transform: `translate(${r.x} ${r.y})` });
+    const run = marks.nodes.get(id);
+    const fill = layout()[id]?.fill;
+    const g = s('g', { class: `node shape-${shape}` + (c.tone ? ` tone-${c.tone}` : '') + (fill ? ` fill-${fill}` : '') + (run ? ` run-${run}` : '') + (selected ? ' sel' : '') + (c.under ? ' under' : ''), 'data-id': id, transform: `translate(${r.x} ${r.y})` });
+    if (c.tint) g.style.setProperty('--tint', c.tint);
     const inner = r.w - BOX.padX * 2;
     const text = (/** @type {string} */ cls, /** @type {number} */ x, /** @type {number} */ y, /** @type {string} */ t, /** @type {number} */ max, /** @type {string} */ font, anchor = 'middle') =>
       // inline style: the stylesheet centers names, and a style beats a presentation attribute
@@ -325,6 +421,12 @@ export function createDiagramView(ctx) {
     stage.style.backgroundSize = `${grid * cam.k}px ${grid * cam.k}px`;
     stage.style.backgroundPosition = `${-cam.x * cam.k}px ${-cam.y * cam.k}px`;
     zoomLabel.textContent = `${Math.round(cam.k * 100)}%`;
+    if (statusPill && statusVersion !== model.version()) {
+      statusVersion = model.version();
+      const st = K.status(model, d);
+      statusPill.textContent = st.text;
+      statusPill.className = `pill dstatus ${st.tone}`;
+    }
     stage.setAttribute('aria-label', `${kindName(d.kind, ctx.notation())}: ${d.name}. ${ids.length} ${K.noun}. Arrow keys move the selection, Delete removes it from the diagram.`);
 
     const gk = globalKey();
@@ -376,7 +478,7 @@ export function createDiagramView(ctx) {
     for (const [id, b] of built) if (!visible.has(id)) { b.g.remove(); built.delete(id); }
     for (const id of visible) {
       const r = /** @type {Rect} */ (rects.get(id));
-      const key = `${content(id).stamp}|${r.x},${r.y},${r.w},${r.h}|${sel.has(id) ? (sel.size === 1 ? 2 : 1) : 0}|${lod}`;
+      const key = `${content(id).stamp}|${r.x},${r.y},${r.w},${r.h}|${sel.has(id) ? (sel.size === 1 ? 2 : 1) : 0}|${lod}|${marks.nodes.get(id) || ''}|${layout()[id]?.fill || ''}`;
       const b = built.get(id);
       if (b && b.key === key) continue;
       const g = buildNode(id, r, lod);
@@ -391,13 +493,20 @@ export function createDiagramView(ctx) {
     const routes = routeCache.routes.filter((rt) => visible.has(rt.edge.from) || visible.has(rt.edge.to));
     const selectedEl = ctx.selected();
     const showRoles = (K.labelsOn ? K.labelsOn(d) : d.props.showRoles !== false) && !lod;
-    const eKey = `${geomKey}|${selectedEl}|${lod}|${routes.length}|${routes.length ? routes[0].edge.id + routes[routes.length - 1].edge.id : ''}`;
+    const eKey = `${geomKey}|${selectedEl}|${lod}|${routes.length}|${routes.length ? routes[0].edge.id + routes[routes.length - 1].edge.id : ''}|${marksStamp}`;
     const parts = [];
     if (eKey !== edgesKey) for (const rt of routes) {
       const pts = rt.points, dPath = pathData(pts);
       const on = rt.edge.element === selectedEl;
       parts.push(`<path class="e-hit" data-el="${rt.edge.element}" d="${dPath}"/>`);
-      parts.push(`<path class="edge ${rt.edge.kind}${rt.edge.dashed ? ' dashed' : ''}${on ? ' sel' : ''}" d="${dPath}"/>`);
+      const runE = marks.edges.get(rt.edge.element);
+      parts.push(`<path class="edge ${rt.edge.kind}${rt.edge.cls ? ' ' + rt.edge.cls : ''}${rt.edge.dashed ? ' dashed' : ''}${runE ? ' run-' + runE : ''}${on ? ' sel' : ''}" d="${dPath}"/>`);
+      const nTok = marks.tokens.get(rt.edge.element);
+      if (nTok) {
+        // a token: a dot on the middle of the line
+        const p = along(pts, 0.5);
+        parts.push(`<circle class="run-dotk" cx="${p.x}" cy="${p.y}" r="6.5"/>${nTok > 1 ? `<text class="run-count" x="${p.x}" y="${p.y + 3.5}">${nTok}</text>` : ''}`);
+      }
       if (rt.edge.kind === 'composition') {
         const p = pts[0], u = { x: Math.sign(pts[1].x - p.x), y: Math.sign(pts[1].y - p.y) }, n = { x: -u.y, y: u.x };
         const q = (/** @type {number} */ a, /** @type {number} */ b) => `${p.x + u.x * a + n.x * b},${p.y + u.y * a + n.y * b}`;
@@ -413,11 +522,16 @@ export function createDiagramView(ctx) {
         const c = { x: p.x + u.x * 7, y: p.y + u.y * 7 };
         parts.push(`<circle class="contain${on ? ' sel' : ''}" cx="${c.x}" cy="${c.y}" r="7"/><path class="contain-x${on ? ' sel' : ''}" d="M${c.x - u.x * 7} ${c.y - u.y * 7} L${c.x + u.x * 7} ${c.y + u.y * 7} M${c.x - n.x * 7} ${c.y - n.y * 7} L${c.x + n.x * 7} ${c.y + n.y * 7}"/>`);
       } else if (rt.edge.kind === 'assoc') {
-        // a plain line (an actor's association with a use case)
+        // a plain line (an actor's association with a use case, a binding), labelled at its far end
+        if (showRoles && rt.edge.label) {
+          const end = pts[pts.length - 1], side = rt.toSide;
+          const [lx, ly, anchor] = side === 't' ? [end.x + 6, end.y - 6, 'start'] : side === 'b' ? [end.x + 6, end.y + 15, 'start'] : side === 'l' ? [end.x - 6, end.y - 6, 'end'] : [end.x + 6, end.y - 6, 'start'];
+          parts.push(`<text class="e-label bind" x="${lx}" y="${ly}" text-anchor="${anchor}">${esc(ellipsize(rt.edge.label, 140, FONTS.label))}</text>`);
+        }
       } else if (rt.edge.kind === 'dependency' || rt.edge.kind === 'flow') {
         const q = pts[pts.length - 1], a = pts[pts.length - 2];
         const u = { x: Math.sign(q.x - a.x), y: Math.sign(q.y - a.y) }, n = { x: -u.y, y: u.x };
-        parts.push(`<path class="arrow${on ? ' sel' : ''}" d="M${q.x - u.x * 11 + n.x * 6} ${q.y - u.y * 11 + n.y * 6} L${q.x} ${q.y} L${q.x - u.x * 11 - n.x * 6} ${q.y - u.y * 11 - n.y * 6}"/>`);
+        parts.push(`<path class="arrow${rt.edge.cls ? ' ' + rt.edge.cls : ''}${runE ? ' run-' + runE : ''}${on ? ' sel' : ''}" d="M${q.x - u.x * 11 + n.x * 6} ${q.y - u.y * 11 + n.y * 6} L${q.x} ${q.y} L${q.x - u.x * 11 - n.x * 6} ${q.y - u.y * 11 - n.y * 6}"/>`);
         if (showRoles && rt.edge.label) {
           // on the longest segment, beside the line
           let bi = 1, bl = -1;
@@ -481,14 +595,15 @@ export function createDiagramView(ctx) {
     invalidate();
     if (tell) {
       const primary = sel.size ? [...sel][sel.size - 1] : null;
-      ctx.select(primary);
-      if (primary) live.textContent = sel.size > 1 ? `${sel.size} blocks selected` : `Selected ${model.get(primary)?.name}`;
+      ctx.select(primary ? lastId(primary) : null);
+      if (primary) live.textContent = sel.size > 1 ? `${sel.size} blocks selected` : `Selected ${elOf(primary)?.name}`;
     }
   }
   /** Keep the canvas selection in step with the browser and inspector. @param {string | null} id */
   function syncSelection(id) {
-    if (id && layout()[id]) { if (!(sel.size === 1 && sel.has(id)) && !sel.has(id)) { sel = new Set([id]); revealIfHidden(id); } }
-    else if (sel.size && (!id || !sel.has(id))) sel = new Set();
+    const key = id && (layout()[id] ? id : Object.keys(layout()).find((k) => lastId(k) === id));
+    if (id && key) { if (!sel.has(key)) { sel = new Set([key]); revealIfHidden(key); } }
+    else if (sel.size && (!id || ![...sel].some((k) => lastId(k) === id))) sel = new Set();
     invalidate();
   }
   /** Pan so a box is in view. @param {string} id */
@@ -539,12 +654,12 @@ export function createDiagramView(ctx) {
     setSel(new Set([id]));
     render();
     revealIfHidden(id); render();
-    if (!K.noRename?.(model.get(id))) startRename(id);
+    if (!K.noRename?.(elOf(id))) startRename(id);
   }
   /** Show an element that is already in the model (a lane's block, say). @param {string} id */
   function placeExisting(id) {
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
-    const e = model.get(id);
+    const e = elOf(id);
     const { w, h: hh } = size();
     const c = toWorld(w / 2, hh / 2);
     const sz = K.dropSize?.(model, diagram(), e, (/** @type {string} */ x) => rectOf(x), shownIds()) || content(id).min;
@@ -623,8 +738,8 @@ export function createDiagramView(ctx) {
   function deleteFromModel() {
     if (!sel.size) return;
     const ids = [...sel];
-    const names = ids.map((id) => model.get(id)?.name).join(', ');
-    if (ctx.edit(ids.length > 1 ? `Delete ${ids.length} blocks` : `Delete ${names}`, (tx) => ids.forEach((id) => { if (model.get(id)) tx.remove(id); }))) {
+    const names = ids.map((id) => elOf(id)?.name).join(', ');
+    if (ctx.edit(ids.length > 1 ? `Delete ${ids.length} blocks` : `Delete ${names}`, (tx) => ids.forEach((id) => { if (elOf(id)) tx.remove(lastId(id)); }))) {
       setSel(new Set());
       toast(`Deleted ${names} from the model. ${formatKeys('Mod+Z')} to undo.`);
     }
@@ -633,7 +748,7 @@ export function createDiagramView(ctx) {
   // ---------- rename in place ----------
   /** @param {string} id */
   function startRename(id) {
-    const e = model.get(id);
+    const e = elOf(id);
     if (!e) return;
     const r = rectOf(id);
     const input = h('input', { class: 'drename', type: 'text', value: e.name, 'aria-label': 'Name', maxlength: 500 });
@@ -642,7 +757,7 @@ export function createDiagramView(ctx) {
     const finish = (/** @type {boolean} */ ok) => {
       if (done) return; done = true; input.remove();
       const v = input.value.trim();
-      if (ok && v && v !== e.name) ctx.edit('Rename', (tx) => tx.rename(id, v));
+      if (ok && v && v !== e.name) ctx.edit('Rename', (tx) => tx.rename(e.id, v));
       stage.focus();
     };
     input.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') finish(true); if (ev.key === 'Escape') finish(false); });
@@ -730,7 +845,7 @@ export function createDiagramView(ctx) {
       linking.kinds = linking.over ? K.linkKinds(model, linking.from, linking.over) : [];
       linking.ok = linking.over ? linking.kinds.length > 0 : null;
       const n = ctx.notation();
-      const a = model.get(linking.from)?.name || '', b = linking.over ? model.get(linking.over)?.name || '' : '';
+      const a = elOf(linking.from)?.name || '', b = linking.over ? elOf(linking.over)?.name || '' : '';
       if (linking.over) {
         tip.textContent = linking.ok
           ? `${a} ${linking.kinds.map((k) => linkVerb(k, n)).join(' / ')} ${b}`
@@ -786,7 +901,7 @@ export function createDiagramView(ctx) {
           let made = '';
           if (ctx.edit(`Add ${linkName(k)}`, (tx) => { made = K.makeLink ? K.makeLink(model, tx, diagram(), k, l.from, to) : tx.link(k, l.from, to); })) {
             if (K.makeLink && made) ctx.select(made);
-            else toast(`${model.get(l.from)?.name} ${linkVerb(k, n)} ${model.get(to)?.name}`);
+            else toast(`${elOf(l.from)?.name} ${linkVerb(k, n)} ${elOf(to)?.name}`);
           }
         };
         if (l.kinds.length === 1) make(l.kinds[0]);
@@ -794,7 +909,7 @@ export function createDiagramView(ctx) {
           const sb = stage.getBoundingClientRect();
           const anchor = h('div', { class: 'menu-anchor', style: { left: `${ev.clientX - sb.left}px`, top: `${ev.clientY - sb.top}px` } });
           stage.append(anchor);
-          popupMenu(anchor, l.kinds.map((k) => ({ label: linkVerb(k, n), hint: K.linkLabel ? '' : RELATIONSHIPS[k].names[n], run: () => make(k) })), { title: `${model.get(l.from)?.name} …` });
+          popupMenu(anchor, l.kinds.map((k) => ({ label: linkVerb(k, n), hint: K.linkLabel ? '' : RELATIONSHIPS[k].names[n], run: () => make(k) })), { title: `${elOf(l.from)?.name} …` });
           setTimeout(() => anchor.remove(), 0);
         }
       }
@@ -803,9 +918,9 @@ export function createDiagramView(ctx) {
   };
 
   /** How a link kind reads ("satisfies", "then", "on takeoff →"). @param {string} k @param {import('../model/metamodel.js').Notation} n */
-  const linkVerb = (k, n) => (K.linkLabel ? K.linkLabel(k, n) : RELATIONSHIPS[k].verb[n]);
+  const linkVerb = (k, n) => (K.linkLabel ? K.linkLabel(k, n, model) : RELATIONSHIPS[k].verb[n]);
   /** @param {string} k */
-  const linkName = (k) => (K.linkLabel ? K.linkLabel(k, 'sysml') : RELATIONSHIPS[k].names.sysml.toLowerCase());
+  const linkName = (k) => (K.linkLabel ? K.linkLabel(k, 'sysml', model) : RELATIONSHIPS[k].names.sysml.toLowerCase());
 
   /** The topmost shown box under a world point (boxes in front of containers). @param {{ x: number, y: number }} p */
   function boxAt(p) {
@@ -867,7 +982,7 @@ export function createDiagramView(ctx) {
     const id = ev.dataTransfer?.getData('application/x-loom-id');
     if (!id) return;
     ev.preventDefault();
-    const e = model.get(id);
+    const e = elOf(id);
     if (!canShow(e)) { toast(K.refuse(e, ctx.notation()), true); return; }
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
     const w = eventWorld(ev);
@@ -883,6 +998,7 @@ export function createDiagramView(ctx) {
     const mod = ev.metaKey || ev.ctrlKey;
     const stop = () => { ev.preventDefault(); ev.stopPropagation(); };
     if (ev.key === ' ') { spaceDown = true; stage.classList.add('pan-ready'); stop(); return; }
+    if (runPanel && !mod && runPanel.key(ev)) { stop(); return; }
     if (ev.key.startsWith('Arrow') && sel.size) {
       const step = ev.shiftKey ? GRID : 1;
       const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0, dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;
@@ -927,7 +1043,10 @@ export function createDiagramView(ctx) {
     stats: () => ({ lastRenderMs, built: built.size, shown: shownIds().length }),
     /** For the benchmark page: move the camera without animation. @param {Partial<Camera>} c */
     setCamera(c) { Object.assign(cam, c); render(); },
-    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); },
+    /** Open or close the run panel (activity and state machine diagrams). @param {boolean} [open] */
+    toggleRun: (open) => toggleRun(open),
+    canRun: () => !!RUNS[/** @type {string} */ (diagram()?.kind)],
+    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); runPanel?.dispose(); },
   };
 }
 

@@ -20,7 +20,7 @@ export class TextError extends Error {
 /** Words that must be quoted when used as names. */
 export const KEYWORDS = new Set(['package', 'part', 'def', 'port', 'requirement', 'verification', 'action', 'attribute', 'connection', 'connect', 'to', 'view', 'doc', 'comment', 'satisfy', 'verify', 'refine', 'derive', 'copy', 'allocate', 'dependency', 'in', 'out', 'inout', 'true', 'false', 'self', 'about', 'import', 'private', 'public', 'abstract', 'ref', 'item', 'flow', 'of', 'from', 'by', 'specializes', 'subsets', 'metadata',
   'state', 'region', 'transition', 'first', 'then', 'accept', 'if', 'do', 'succession', 'start', 'done', 'terminate', 'decide', 'merge', 'fork', 'join',
-  'actor', 'use', 'case', 'include', 'extend', 'participate', 'interaction', 'lifeline', 'message', 'fragment', 'operand', 'entry', 'exit']);
+  'actor', 'use', 'case', 'include', 'extend', 'participate', 'interaction', 'lifeline', 'message', 'fragment', 'operand', 'entry', 'exit', 'constraint', 'bind']);
 
 const BASIC = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A name as written: bare when it can be, quoted otherwise. @param {string} name */
