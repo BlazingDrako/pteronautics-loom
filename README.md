@@ -2,11 +2,13 @@
 
 **Pteronautics Loom** is the systems engineering program of the Pteronautics family. It is a model-based systems engineering (MBSE) tool built on SysML. You model requirements, functions, architecture and physical parts (RFLP), trace them end to end, and verify them, in a fast, good-looking app that runs in the browser.
 
+**Use it now:** https://blazingdrako.github.io/pteronautics-loom/ (nothing to install; choose *Install app* to have it in its own window, offline). Projects stay in your browser.
+
 ## The Pteronautics family
 
 | Program | What it's for |
 | --- | --- |
-| **Pteronautics Atlas** | Learn how the physics works, one concept at a time, each with a live visual |
+| **[Pteronautics Atlas](https://blazingdrako.github.io/pteronautics-atlas/)** | Learn how the physics works, one concept at a time, each with a live visual |
 | **Pteronautics Works** | Design whole vehicles on the same validated solvers, coupled together |
 | **Pteronautics Loom** (this repository) | Model the system: requirements, functions, logical and physical architecture, interfaces and verification, in SysML |
 
@@ -178,6 +180,7 @@ Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nea
 - **Windows:** double-click `start.bat`.
 - **macOS app:** double-click `Pteronautics Loom.app` in this folder (no Terminal window; quit it from the Dock to stop the server).
 - **Any system:** `python3 serve.py`, then open http://localhost:8800
+- **No install at all:** https://blazingdrako.github.io/pteronautics-loom/
 
 Then choose **Install app** on the Home page to have Loom in its own window, offline. The same folder can be hosted as-is on any static web host, so people need nothing installed at all. New to Loom? Start with [the user guide](docs/guide.md).
 

@@ -240,7 +240,7 @@ export async function mountHome(root, ctx) {
             h('button', { class: 'btn', type: 'button', onclick: newProject }, icon('plus'), 'New project'))),
       h('footer', { class: 'home-foot' },
         h('span', {}, 'Part of the Pteronautics family: ',
-          h('a', { href: 'https://github.com/BlazingDrako/pteronautics-atlas', target: '_blank', rel: 'noopener' }, 'Atlas'), ' · ',
+          h('a', { href: 'https://blazingdrako.github.io/pteronautics-atlas/', target: '_blank', rel: 'noopener' }, 'Atlas'), ' · ',
           h('a', { href: 'https://github.com/BlazingDrako/pteronautics-works', target: '_blank', rel: 'noopener' }, 'Works'), ' · Loom'),
         h('span', { class: 'mono' }, `Loom ${VERSION} · GPLv3`)),
       fileInput);
