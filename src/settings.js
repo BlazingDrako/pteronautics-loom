@@ -5,6 +5,8 @@
  * @typedef {{
  *   notation: Notation,
  *   inspector: boolean,
+ *   textPane: boolean,      // the SysML v2 text beside the open view
+ *   textWidth: number,      // its width in pixels
  *   integrations: { works: boolean },
  * }} Settings
  */
@@ -13,7 +15,7 @@ const KEY = 'loom-settings';
 
 /** @returns {Settings} */
 export function defaults() {
-  return { notation: 'sysml', inspector: true, integrations: { works: false } };
+  return { notation: 'sysml', inspector: true, textPane: false, textWidth: 460, integrations: { works: false } };
 }
 
 /**
@@ -27,6 +29,8 @@ export function sanitize(raw) {
   const r = /** @type {Record<string, any>} */ (raw);
   if (r.notation === 'sysml' || r.notation === 'v2' || r.notation === 'guided') d.notation = r.notation;
   if (typeof r.inspector === 'boolean') d.inspector = r.inspector;
+  if (typeof r.textPane === 'boolean') d.textPane = r.textPane;
+  if (typeof r.textWidth === 'number' && Number.isFinite(r.textWidth)) d.textWidth = Math.round(Math.min(1200, Math.max(280, r.textWidth)));
   if (r.integrations && typeof r.integrations.works === 'boolean') d.integrations.works = r.integrations.works;
   return d;
 }

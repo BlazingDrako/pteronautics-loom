@@ -401,7 +401,10 @@ export function createModel(opts = {}) {
     link(kind, source, target, o = {}) {
       if (!(kind in RELATIONSHIPS)) throw new ModelError(`Unknown relationship ${kind}`);
       const s = must(source), t = must(target);
-      if (!api.canLink(kind, source, target)) throw new ModelError(`${s.name} cannot ${RELATIONSHIPS[kind].verb.sysml} ${t.name}`);
+      if (!api.canLink(kind, source, target)) {
+        const dup = api.relsFrom(source).some((r) => r.kind === kind && r.target === target);
+        throw new ModelError(dup ? `${s.name} already ${RELATIONSHIPS[kind].verb.sysml} ${t.name}` : `${s.name} cannot have a ${RELATIONSHIPS[kind].names.sysml.toLowerCase()} relationship to ${t.name}`);
+      }
       const id = o.id || newId();
       run({ t: 'add', el: { id, kind, name: '', owner: null, source, target, props: {} }, index: 0 });
       return id;

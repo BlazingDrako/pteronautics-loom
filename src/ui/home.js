@@ -3,6 +3,7 @@
 import { h, s, icon, brandMark, toast, resolvedTheme } from './dom.js';
 import { modal, prompt, confirm } from './dialog.js';
 import { LAYERS } from '../model/metamodel.js';
+import { canUseFolders, pickFolder, readFolder } from '../storage/folderfs.js';
 import { VERSION } from '../version.js';
 
 /** @typedef {import('../storage/projects.js').ProjectStore} ProjectStore */
@@ -51,20 +52,34 @@ export async function mountHome(root, ctx) {
   const page = h('div', { class: 'home' });
   root.replaceChildren(page);
 
-  const fileInput = h('input', { type: 'file', accept: '.json,.loom.json,application/json', hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
+  const fileInput = h('input', { type: 'file', accept: '.json,.loom.json,.zip,application/json,application/zip', hidden: true, 'aria-hidden': 'true', tabindex: '-1' });
   fileInput.addEventListener('change', async () => {
     const f = fileInput.files?.[0];
     fileInput.value = '';
     if (!f) return;
     if (f.size > 50 * 1024 * 1024) { toast('That file is larger than 50 MB', true); return; }
     try {
-      const meta = await projects.importFile(await f.text());
+      const meta = await projects.importBytes(new Uint8Array(await f.arrayBuffer()));
       toast(`Imported “${meta.name}”`);
       await refresh();
     } catch (e) { toast(e instanceof Error ? e.message : 'Could not import that file', true); }
   });
 
   const refresh = async () => { list = await projects.list(); render(); };
+
+  /** Open a project folder (SysML text plus .loom/) and keep it in step. */
+  async function openFolder() {
+    if (!canUseFolders()) { toast('This browser cannot open folders. Import a .zip of the folder instead (Chrome, Edge and Arc can open folders).', true); return; }
+    const dir = await pickFolder();
+    if (!dir) return;
+    try {
+      const files = await readFolder(dir);
+      if (!Object.keys(files).some((p) => p.endsWith('.sysml'))) { toast(`“${dir.name}” has no Loom project (no .sysml files). To save a project into it, open the project and choose Save to a folder.`, true); return; }
+      const meta = await projects.importFolder(files, dir, dir.name);
+      toast(`Opened “${meta.name}” from the folder ${dir.name}`);
+      ctx.open(meta.id);
+    } catch (e) { toast(e instanceof Error ? e.message : 'Could not open that folder', true); }
+  }
 
   async function newProject() {
     /** @type {{ name: string, template: 'blank' | 'kestrel' } | null} */
@@ -109,6 +124,12 @@ export async function mountHome(root, ctx) {
     toast(`Exported ${f.filename}`);
   }
   /** @param {ProjectMeta} p */
+  async function exportZip(p) {
+    const f = await projects.exportZip(p.id);
+    download(f.filename, /** @type {any} */ (f.bytes), 'application/zip');
+    toast(`Exported ${f.filename}`);
+  }
+  /** @param {ProjectMeta} p */
   async function deleteProject(p) {
     const ok = await confirm({ title: `Delete “${p.name}”?`, body: `This removes the project and its ${p.stats.elements} elements from this device. It cannot be undone. Export it first if you may want it back.`, ok: 'Delete project', danger: true });
     if (!ok) return;
@@ -121,7 +142,7 @@ export async function mountHome(root, ctx) {
   function card(p) {
     const total = Math.max(1, LAYERS.reduce((a, l) => a + (p.stats.layers[l.id] || 0), 0));
     const menu = h('div', { class: 'card-menu', role: 'menu', hidden: true },
-      ...[['Open', () => ctx.open(p.id)], ['Rename…', () => renameProject(p)], ['Duplicate', () => duplicateProject(p)], ['Export .loom.json', () => exportProject(p)], ['Delete…', () => deleteProject(p)]]
+      ...[['Open', () => ctx.open(p.id)], ['Rename…', () => renameProject(p)], ['Duplicate', () => duplicateProject(p)], ['Export .zip (SysML text)', () => exportZip(p)], ['Export .loom.json', () => exportProject(p)], ['Delete…', () => deleteProject(p)]]
         .map(([label, fn]) => h('button', { type: 'button', role: 'menuitem', class: label === 'Delete…' ? 'danger-text' : '', onclick: (/** @type {Event} */ e) => { e.stopPropagation(); menu.hidden = true; /** @type {() => void} */ (fn)(); } }, /** @type {string} */ (label))));
     const more = h('button', { class: 'icon-btn card-more', type: 'button', 'aria-label': `Actions for ${p.name}`, 'aria-haspopup': 'menu',
       onclick: (/** @type {Event} */ e) => {
@@ -141,7 +162,7 @@ export async function mountHome(root, ctx) {
             h('span', { class: 'pcard-bar-n mono' }, String(p.stats.layers[l.id] || 0)))))),
         h('div', { class: 'pcard-body' },
           h('h3', { class: 'pcard-title', title: p.name }, p.name),
-          h('div', { class: 'pcard-meta' }, h('span', {}, `${p.stats.elements} elements`), h('span', {}, `${p.stats.relationships} traces`), h('span', {}, `edited ${ago(p.modified)}`)))),
+          h('div', { class: 'pcard-meta' }, p.folder ? h('span', { class: 'pcard-folder', title: `Saved to the folder ${p.folder.name}` }, icon('folder'), p.folder.name) : null, h('span', {}, `${p.stats.elements} elements`), h('span', {}, `${p.stats.relationships} traces`), h('span', {}, `edited ${ago(p.modified)}`)))),
       more, menu);
   }
 
@@ -159,7 +180,8 @@ export async function mountHome(root, ctx) {
           h('p', { class: 'hero-sub' }, 'Loom models your system in SysML across four layers (requirements, functions, logical and physical) and keeps every thread between them traced.'),
           h('div', { class: 'hero-actions' },
             h('button', { class: 'btn primary lg', type: 'button', onclick: newProject }, icon('plus'), 'New project'),
-            h('button', { class: 'btn lg', type: 'button', onclick: () => fileInput.click() }, icon('upload'), 'Import .loom.json')))),
+            canUseFolders() ? h('button', { class: 'btn lg', type: 'button', title: 'Open a folder of .sysml files saved by Loom (for example a git repository)', onclick: openFolder }, icon('folder'), 'Open folder') : null,
+            h('button', { class: 'btn lg', type: 'button', title: 'Import a .loom.json file or a .zip of a project folder', onclick: () => fileInput.click() }, icon('upload'), 'Import')))),
       h('section', { class: 'projects' },
         h('div', { class: 'projects-head' },
           h('h2', {}, 'Your projects'),
@@ -169,7 +191,7 @@ export async function mountHome(root, ctx) {
           ? h('div', { class: 'pgrid' }, list.map(card))
           : h('div', { class: 'pempty' },
             h('b', {}, 'No projects yet'),
-            h('p', {}, 'Start a blank project, open the Kestrel sample to look around, or import a .loom.json file.'),
+            h('p', {}, 'Start a blank project, open the Kestrel sample to look around, or bring in a project file or folder.'),
             h('button', { class: 'btn', type: 'button', onclick: newProject }, icon('plus'), 'New project'))),
       h('footer', { class: 'home-foot' },
         h('span', {}, 'Part of the Pteronautics family: ',
@@ -184,7 +206,7 @@ export async function mountHome(root, ctx) {
   addEventListener('themechange', render);
   render();
   return {
-    newProject, importFile: () => fileInput.click(),
+    newProject, importFile: () => fileInput.click(), openFolder,
     dispose() { document.removeEventListener('click', closeMenus); removeEventListener('themechange', render); },
   };
 }

@@ -3,6 +3,7 @@
 import { h, icon } from './dom.js';
 import { ELEMENTS, RELATIONSHIPS, LAYERS, kindName, canRelate, isRel, isDiagram } from '../model/metamodel.js';
 import { levelOf, requirementStatus, idPrefixFor, DEFAULT_PREFIX } from '../model/trace.js';
+import { canUseFolders } from '../storage/folderfs.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -15,7 +16,7 @@ import { levelOf, requirementStatus, idPrefixFor, DEFAULT_PREFIX } from '../mode
  *   selected: () => string | null,
  *   select: (id: string | null) => void,
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
- *   meta: () => { created: string, modified: string },
+ *   meta: () => { created: string, modified: string, folder?: { name: string, sig: string, synced: string } },
  *   open: (id: string) => void,
  * }} InspectorCtx
  */
@@ -183,6 +184,19 @@ export function createInspector(ctx) {
       h('div', { class: 'kv' }, h('span', {}, 'Elements'), h('span', { class: 'mono' }, String(m.elementCount() - 5))),
       h('div', { class: 'kv' }, h('span', {}, 'Relationships'), h('span', { class: 'mono' }, String(m.count() - m.elementCount()))),
       h('div', { class: 'kv' }, h('span', {}, 'Created'), h('span', {}, new Date(meta.created).toLocaleDateString())),
+      h('div', { class: 'sec' }, 'Files'),
+      meta.folder
+        ? [h('div', { class: 'kv' }, h('span', {}, 'Folder'), h('span', { class: 'mono', title: `Saved as SysML text in ${meta.folder.name}` }, meta.folder.name)),
+          h('div', { class: 'kv' }, h('span', {}, 'Last saved there'), h('span', {}, new Date(meta.folder.synced).toLocaleTimeString())),
+          h('div', { class: 'insp-actions' },
+            h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('project.folder.sync') }, 'Save now'),
+            h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('project.folder.load') }, 'Load changes'),
+            h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('project.folder.unlink') }, 'Unlink'))]
+        : [h('p', { class: 'muted small' }, canUseFolders() ? 'Save the project to a folder as SysML v2 text, ready for git. Loom keeps it up to date as you work.' : 'Export the project as a .zip of SysML v2 text files, ready for git.'),
+          h('div', { class: 'insp-actions' },
+            canUseFolders() ? h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('project.folder.link') }, icon('folder'), 'Save to a folder…') : null,
+            h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('project.exportZip') }, 'Export .zip'))],
+      h('button', { class: 'btn sm insp-text', type: 'button', onclick: () => ctx.commands.run('view.text') }, icon('code'), st.textPane ? 'Hide the SysML v2 text' : 'Show the SysML v2 text'),
       h('div', { class: 'sec' }, 'Display'),
       h('div', { class: 'field-label' }, 'Notation',
         h('div', { class: 'seg seg-full', role: 'group', 'aria-label': 'Notation' }, notBtn('sysml', 'SysML'), notBtn('v2', 'SysML v2'), notBtn('guided', 'Guided')),

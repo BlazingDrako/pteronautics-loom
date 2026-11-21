@@ -6,17 +6,21 @@ import { createModel } from '../model/model.js';
 import { snapshot, restore, toFile, fromFile, fileNameFor } from '../model/serialize.js';
 import { isRel } from '../model/metamodel.js';
 import { buildKestrel } from '../model/sample.js';
+import { projectFiles, modelFromFiles, signature } from './folder.js';
+import { zip, unzip, isZip, textFiles } from './zip.js';
 
 /**
  * @typedef {{
  *   id: string, name: string, description: string,
  *   created: string, modified: string, opened: string,
  *   stats: { elements: number, relationships: number, layers: Record<string, number> },
+ *   folder?: { name: string, sig: string, synced: string },  // linked to a folder on disk
  * }} ProjectMeta
+ * @typedef {'meta' | 'model' | 'handles'} StoreName
  * @typedef {{
- *   get(store: 'meta' | 'model', key: string): Promise<any>,
- *   put(store: 'meta' | 'model', key: string, value: any): Promise<void>,
- *   del(store: 'meta' | 'model', key: string): Promise<void>,
+ *   get(store: StoreName, key: string): Promise<any>,
+ *   put(store: StoreName, key: string, value: any): Promise<void>,
+ *   del(store: StoreName, key: string): Promise<void>,
  *   all(store: 'meta'): Promise<any[]>,
  *   persistent: boolean,
  * }} Backend
@@ -25,27 +29,31 @@ import { buildKestrel } from '../model/sample.js';
 /** @returns {Backend} */
 export function memoryBackend() {
   /** @type {Record<string, Map<string, any>>} */
-  const db = { meta: new Map(), model: new Map() };
-  const copy = (/** @type {any} */ v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+  const db = { meta: new Map(), model: new Map(), handles: new Map() };
+  // folder handles are live objects: kept as they are, not copied
+  const copy = (/** @type {StoreName} */ s, /** @type {any} */ v) => (v === undefined || s === 'handles' ? v : JSON.parse(JSON.stringify(v)));
   return {
     persistent: false,
-    get: async (s, k) => copy(db[s].get(k)),
-    put: async (s, k, v) => { db[s].set(k, copy(v)); },
+    get: async (s, k) => copy(s, db[s].get(k)),
+    put: async (s, k, v) => { db[s].set(k, copy(s, v)); },
     del: async (s, k) => { db[s].delete(k); },
-    all: async (s) => [...db[s].values()].map(copy),
+    all: async (s) => [...db[s].values()].map((v) => copy(s, v)),
   };
 }
 
 /** @param {string} [name] @returns {Promise<Backend>} */
 export async function indexedDbBackend(name = 'pteronautics-loom') {
   const db = await new Promise((resolve, reject) => {
-    const req = indexedDB.open(name, 1);
-    req.onupgradeneeded = () => { req.result.createObjectStore('meta'); req.result.createObjectStore('model'); };
+    const req = indexedDB.open(name, 2);
+    req.onupgradeneeded = () => {
+      const have = req.result.objectStoreNames;
+      for (const st of ['meta', 'model', 'handles']) if (!have.contains(st)) req.result.createObjectStore(st);
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('Storage is blocked by another tab'));
   });
-  /** @template T @param {'meta' | 'model'} s @param {IDBTransactionMode} mode @param {(st: IDBObjectStore) => IDBRequest} fn @returns {Promise<T>} */
+  /** @template T @param {StoreName} s @param {IDBTransactionMode} mode @param {(st: IDBObjectStore) => IDBRequest} fn @returns {Promise<T>} */
   const op = (s, mode, fn) => new Promise((resolve, reject) => {
     const t = /** @type {IDBDatabase} */ (db).transaction(s, mode);
     const r = fn(t.objectStore(s));
@@ -167,6 +175,7 @@ export function createProjectStore(backend) {
     /** @param {string} id */
     async remove(id) {
       await backend.del('model', id);
+      await backend.del('handles', id);
       await backend.del('meta', id);
     },
     /** The project as a .loom.json file. @param {string} id @returns {Promise<{ filename: string, text: string }>} */
@@ -179,6 +188,69 @@ export function createProjectStore(backend) {
     async importFile(text) {
       const f = fromFile(text);
       return add(await freeName(f.name), f.description, f.model);
+    },
+    /** Add a project from a file's bytes: a .loom.json or a .zip of a project folder. @param {Uint8Array} bytes */
+    async importBytes(bytes) {
+      if (isZip(bytes)) {
+        const f = modelFromFiles(textFiles(await unzip(bytes)));
+        return add(await freeName(f.name), f.description, f.model);
+      }
+      return this.importFile(new TextDecoder().decode(bytes));
+    },
+    /** The project as folder files (SysML text plus .loom/). @param {string} id */
+    async files(id) {
+      const rec = await meta(id);
+      const model = restore(await backend.get('model', id));
+      return { name: rec.name, files: projectFiles(model, rec) };
+    },
+    /** The project as a .zip of its folder. @param {string} id @returns {Promise<{ filename: string, bytes: Uint8Array }>} */
+    async exportZip(id) {
+      const { name, files } = await this.files(id);
+      const top = name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'project';
+      const bytes = await zip(Object.fromEntries(Object.entries(files).map(([p, t]) => [`${top}/${p}`, t])));
+      return { filename: `${top}.zip`, bytes };
+    },
+    /**
+     * Add a project from a folder's files and link it to the folder.
+     * @param {Record<string, string>} files @param {any} [handle] @param {string} [folderName]
+     */
+    async importFolder(files, handle, folderName) {
+      const f = modelFromFiles(files);
+      const rec = await add(await freeName(f.name), f.description, f.model);
+      if (handle) await this.link(rec.id, handle, folderName || handle.name, signature(files));
+      return meta(rec.id);
+    },
+    /** Link a project to a folder on disk. @param {string} id @param {any} handle @param {string} name @param {string} sig */
+    async link(id, handle, name, sig) {
+      const rec = await meta(id);
+      rec.folder = { name, sig, synced: now() };
+      await backend.put('handles', id, handle);
+      await backend.put('meta', id, rec);
+      return rec;
+    },
+    /** @param {string} id */
+    async unlink(id) {
+      const rec = await meta(id);
+      delete rec.folder;
+      await backend.del('handles', id);
+      await backend.put('meta', id, rec);
+      return rec;
+    },
+    /** The linked folder's handle, if any. @param {string} id */
+    folderHandle: (/** @type {string} */ id) => backend.get('handles', id),
+    /** Record that the folder now holds these files. @param {string} id @param {string} sig */
+    async synced(id, sig) {
+      const rec = await meta(id);
+      if (!rec.folder) return rec;
+      rec.folder = { ...rec.folder, sig, synced: now() };
+      await backend.put('meta', id, rec);
+      return rec;
+    },
+    /** Replace a project's model (loading a folder's newer version). @param {string} id @param {import('../model/model.js').Model} m */
+    async replaceModel(id, m) {
+      m.clear();
+      await backend.put('model', id, snapshot(m));
+      return this.save(id, m);
     },
   };
 }

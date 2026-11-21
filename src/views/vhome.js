@@ -124,7 +124,7 @@ export function createVHomeView(ctx) {
         h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.openMatrix() }, icon('matrix'), 'Satisfy matrix')));
 
     // geometry: the V fills the width, cards step inward as they go down
-    const W = Math.max(900, scroller.clientWidth - 48), CW = 220, CH = 104, stepY = 116;
+    const W = Math.max(640, scroller.clientWidth - 48), CW = 220, CH = 104, stepY = 116;
     const stepX = Math.min(118, (W - 2 * CW - 24) / 7);
     const pos = (/** @type {Stage} */ st) => {
       if (st.side === 'bottom') return { x: W / 2 - CW / 2, y: 4 * stepY };

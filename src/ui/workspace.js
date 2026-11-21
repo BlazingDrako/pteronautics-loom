@@ -16,6 +16,13 @@ import { createTraceView } from '../views/trace.js';
 import { createVHomeView } from '../views/vhome.js';
 import { nextReqId } from '../model/trace.js';
 import { populateReq } from '../canvas/populate.js';
+import { createTextPane } from './textpane.js';
+import { modal, confirm } from './dialog.js';
+import { snapshot } from '../model/serialize.js';
+import { applySnapshot } from '../text/build.js';
+import { projectFiles, signature, snapshotFromFiles, pick, FileError, PROJECT_FILE } from '../storage/folder.js';
+import { canUseFolders, pickFolder, hasAccess, readFolder, writeFolder } from '../storage/folderfs.js';
+import { LAYER_FILES } from '../text/printer.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -43,6 +50,7 @@ const GRID_KINDS = ['table', 'matrix'];
  *   settings: import('../settings.js').SettingsStore,
  *   commands: import('../commands.js').CommandRegistry,
  *   save: (m: Model) => Promise<ProjectMeta>,
+ *   projects: import('../storage/projects.js').ProjectStore,
  * }} ctx
  */
 export function mountWorkspace(root, ctx) {
@@ -83,6 +91,7 @@ export function mountWorkspace(root, ctx) {
     selected = id;
     tree.render(); inspector.render(); paintStage();
     currentView()?.syncSelection(id);
+    pane?.syncSelection(id);
   }
 
   const tree = createTree({
@@ -108,6 +117,8 @@ export function mountWorkspace(root, ctx) {
     active = id;
     paintMain();
     currentView()?.syncSelection(selected);
+    // with nothing selected, the text shows what the diagram is about (an ibd's block, say)
+    pane?.syncSelection(selected || (isView(id) ? null : model.get(id)?.kind === 'ibd' ? model.get(id)?.owner || id : id));
     currentView()?.focus();
   }
   /** Open the first view of a kind, or make one in the Requirements layer. @param {string} kind */
@@ -240,6 +251,124 @@ export function mountWorkspace(root, ctx) {
     try { meta = await ctx.save(model); saveState = 'saved'; }
     catch (e) { saveState = 'error'; toast(`Could not save: ${e instanceof Error ? e.message : e}`, true); }
     paintStatus(); paintTop();
+    if (saveState === 'saved' && meta.folder) await syncFolder(false);
+  }
+
+  // ---------- folder on disk ----------
+  /** @type {'none' | 'synced' | 'saving' | 'locked' | 'conflict' | 'error' | 'missing'} */
+  let folderState = meta.folder ? 'synced' : 'none';
+  /** The files Loom writes for the model now. */
+  const ourFiles = () => projectFiles(model, meta);
+  /** Only Loom's files from what is on disk. @param {Record<string, string>} disk */
+  const ours = (disk) => pick(disk, [...new Set([...Object.keys(ourFiles()), ...Object.values(LAYER_FILES)])]);
+  let syncing = false;
+  /**
+   * Write the model to the linked folder. When the folder changed outside Loom since the last
+   * sync, ask which version wins instead of overwriting. `ask`: may ask for access (a click).
+   * @param {boolean} ask
+   */
+  async function syncFolder(ask) {
+    if (!meta.folder || syncing) return;
+    syncing = true;
+    try {
+      const dir = await ctx.projects.folderHandle(meta.id);
+      if (!dir) { folderState = 'missing'; return; }
+      if (!(await hasAccess(dir, ask))) { folderState = 'locked'; return; }
+      folderState = 'saving'; paintStatus();
+      const files = ourFiles(), sig = signature(files);
+      const disk = ours(await readFolder(dir)), diskSig = signature(disk);
+      if (diskSig !== meta.folder.sig && diskSig !== sig && Object.keys(disk).length) { folderState = 'conflict'; paintStatus(); syncing = false; await resolveConflict(); return; }
+      if (diskSig !== sig) await writeFolder(dir, files);
+      meta = await ctx.projects.synced(meta.id, sig);
+      folderState = 'synced';
+    } catch (e) {
+      folderState = 'error';
+      toast(`Could not save to the folder: ${e instanceof Error ? e.message : e}`, true);
+    } finally { syncing = false; paintStatus(); }
+  }
+  /** The folder changed outside Loom (a git pull, another editor): ask which version to keep. */
+  async function resolveConflict() {
+    const choice = await modal({
+      title: `“${meta.folder?.name}” changed outside Loom`, ok: 'Load the folder\'s version',
+      build: (close) => ({
+        body: h('div', {},
+          h('p', { class: 'dialog-text' }, 'The files in the folder were changed since Loom last saved them, for example by git or another editor.'),
+          h('p', { class: 'dialog-text' }, 'Load the folder\'s version into Loom (one step you can undo), or keep Loom\'s version and overwrite the folder\'s files.'),
+          h('button', { class: 'btn sm', type: 'button', onclick: () => close('keep') }, 'Keep Loom\'s version and overwrite the folder')),
+        value: () => 'load',
+      }),
+    });
+    if (choice === 'load') await loadFromFolder();
+    else if (choice === 'keep') { if (meta.folder) meta = await ctx.projects.synced(meta.id, '(overwrite)'); folderState = 'synced'; await syncFolder(true); }
+    else paintStatus();
+  }
+  /** Bring the folder's files into the model, as one undoable edit. */
+  async function loadFromFolder() {
+    const dir = meta.folder ? await ctx.projects.folderHandle(meta.id) : null;
+    if (!dir || !(await hasAccess(dir, true))) { toast('Loom cannot read the folder. Allow access and try again.', true); return; }
+    const disk = ours(await readFolder(dir));
+    try {
+      const snap = snapshotFromFiles(model, disk);
+      const s = applySnapshot(model, snap, 'Load from folder');
+      meta = await ctx.projects.synced(meta.id, signature(disk));
+      folderState = 'synced';
+      toast(s.created + s.removed + s.changed ? `Loaded from the folder: ${s.created} added, ${s.removed} removed, ${s.changed} changed. ${formatKeys('Mod+Z')} to undo.` : 'The folder matches the model');
+    } catch (e) {
+      folderState = 'error';
+      toast(e instanceof FileError || e instanceof ModelError ? `The folder has a problem: ${e.message}` : `Could not load the folder: ${e instanceof Error ? e.message : e}`, true);
+    }
+    paintStatus();
+  }
+  /** Link this project to a folder (choosing one) and save into it. */
+  async function linkFolder() {
+    if (!canUseFolders()) { toast('This browser cannot save to folders. Use Export .zip instead (Chrome, Edge and Arc can).', true); return; }
+    const dir = await pickFolder();
+    if (!dir) return;
+    const disk = await readFolder(dir);
+    const foreign = PROJECT_FILE in disk || Object.values(LAYER_FILES).some((f) => f in disk);
+    if (foreign && !(await confirm({ title: `Replace the project in “${dir.name}”?`, body: 'That folder already holds a Loom project. Saving this project there replaces its .sysml and .loom files. Other files in the folder are left alone.', ok: 'Replace its files', danger: true }))) return;
+    const files = ourFiles();
+    await writeFolder(dir, files);
+    meta = await ctx.projects.link(meta.id, dir, dir.name, signature(files));
+    folderState = 'synced';
+    paintStatus(); inspector.render();
+    toast(`Saved to “${dir.name}”. Loom now keeps it up to date as you work.`);
+  }
+  async function unlinkFolder() {
+    if (!meta.folder) return;
+    const name = meta.folder.name;
+    meta = await ctx.projects.unlink(meta.id);
+    folderState = 'none';
+    paintStatus(); inspector.render();
+    toast(`No longer saving to “${name}”. Its files stay as they are.`);
+  }
+  /** On opening: if the folder changed since the last sync, offer to load it. */
+  async function checkFolderOnOpen() {
+    if (!meta.folder) return;
+    const dir = await ctx.projects.folderHandle(meta.id);
+    if (!dir) { folderState = 'missing'; paintStatus(); return; }
+    if (!(await hasAccess(dir, false))) { folderState = 'locked'; paintStatus(); return; }
+    try {
+      const disk = ours(await readFolder(dir));
+      if (Object.keys(disk).length && signature(disk) !== meta.folder.sig) { folderState = 'conflict'; paintStatus(); await resolveConflict(); }
+    } catch { folderState = 'error'; paintStatus(); }
+  }
+  /** The status bar's folder button. */
+  function folderPill() {
+    if (!meta.folder) return null;
+    const n = meta.folder.name;
+    /** @type {Record<string, [string, string, () => void]>} */
+    const states = {
+      synced: [`Folder: ${n}`, 'good', () => syncFolder(true)],
+      saving: ['Saving to folder…', '', () => {}],
+      locked: [`Allow access to ${n}`, 'warn', () => syncFolder(true)],
+      conflict: [`${n} changed outside Loom`, 'warn', () => resolveConflict()],
+      error: [`Folder problem: retry`, 'bad', () => syncFolder(true)],
+      missing: [`Folder link lost`, 'bad', () => linkFolder()],
+      none: ['', '', () => {}],
+    };
+    const [label, cls, run] = states[folderState];
+    return h('button', { class: `pill folder-pill ${cls}`, type: 'button', title: folderState === 'synced' ? `Saved to the folder “${n}” as SysML text. Click to save now.` : label, onclick: run }, icon('folder'), h('span', {}, label));
   }
   const unsub = model.subscribe((ev) => {
     if (ev.cause === 'load') return;
@@ -251,7 +380,7 @@ export function mountWorkspace(root, ctx) {
     currentView()?.invalidate();
     if (ev.cause !== 'do') toast(`${ev.cause === 'undo' ? 'Undid' : 'Redid'}: ${ev.label}`);
   });
-  const unsubSettings = settings.subscribe(() => { tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
+  const unsubSettings = settings.subscribe(() => { paintPane(); tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
   const onUnload = () => { if (pending) flush(); };
   addEventListener('beforeunload', onUnload);
 
@@ -261,6 +390,22 @@ export function mountWorkspace(root, ctx) {
   const stage = h('div', { class: 'stage', role: 'region', 'aria-label': 'Model overview' });
   const tabbar = h('div', { class: 'tabbar', role: 'tablist', 'aria-label': 'Open views' });
   const content = h('div', { class: 'content' });
+  /** @type {ReturnType<typeof createTextPane> | null} */
+  let pane = null;
+  const workrow = h('div', { class: 'workrow' }, content);
+  function paintPane() {
+    const want = settings.get().textPane;
+    if (want && !pane) {
+      pane = createTextPane({
+        model, selected: () => selected, select, toast,
+        close: () => settings.update((st) => { st.textPane = false; }),
+        width: () => settings.get().textWidth,
+        setWidth: (w) => settings.update((st) => { st.textWidth = w; }),
+      });
+      workrow.append(pane.el);
+      pane.syncSelection(selected);
+    } else if (!want && pane) { pane.dispose(); pane.el.remove(); pane = null; }
+  }
   const status = h('footer', { class: 'statusbar' });
 
   const sidebar = h('aside', { class: 'sidebar', 'aria-label': 'Model' },
@@ -332,6 +477,7 @@ export function mountWorkspace(root, ctx) {
     status.replaceChildren(...[
       h('span', { class: 'save-state ' + saveState }, h('span', { class: 'ok-dot' }), saveState === 'saved' ? 'Saved on this device' : saveState === 'saving' ? 'Saving…' : 'Not saved'),
       h('span', {}, `${model.elementCount() - 5} elements`),
+      folderPill(),
       h('span', { class: 'grow' }),
       h('span', {}, st.notation === 'guided' ? 'Guided notation' : st.notation === 'v2' ? 'SysML v2 notation' : 'SysML notation'),
       st.integrations.works ? h('span', { class: 'pill accent' }, 'Works linked') : null,
@@ -360,7 +506,9 @@ export function mountWorkspace(root, ctx) {
     v.invalidate();
   }
 
-  shell.append(sidebar, top, h('main', { class: 'main' }, tabbar, content), inspector.el, status);
+  shell.append(sidebar, top, h('main', { class: 'main' }, tabbar, workrow), inspector.el, status);
+  paintPane();
+  checkFolderOnOpen();
   root.replaceChildren(shell);
   paintTop(); paintMain(); paintStatus();
 
@@ -387,7 +535,11 @@ export function mountWorkspace(root, ctx) {
     currentView,
     /** The package a new view of `kind` goes in. @param {string} kind */
     ownerFor,
-    dispose() { clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
+    linkFolder, unlinkFolder, loadFromFolder,
+    syncFolder: () => syncFolder(true),
+    linked: () => !!meta.folder,
+    textPane: () => pane,
+    dispose() { pane?.dispose(); clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
   };
 }
 

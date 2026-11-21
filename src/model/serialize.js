@@ -2,8 +2,8 @@
 // Loading checks everything (kinds, owners, relationship ends, references), so a damaged or
 // hand-edited file is refused with a clear message instead of corrupting the app.
 //
-// SysML v2 text (.sysml) becomes the main save format in a later build; this JSON form stays
-// as the fast local snapshot and the single-file export.
+// Project folders are saved as SysML v2 text (see src/storage/folder.js); this JSON form is
+// the fast local snapshot (IndexedDB) and the single-file .loom.json export.
 import { createModel, ModelError } from './model.js';
 import { ELEMENTS, RELATIONSHIPS, isRel, canOwnKind, canRelate, defaultProps, isDiagram } from './metamodel.js';
 import { isId } from './ids.js';

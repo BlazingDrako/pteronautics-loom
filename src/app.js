@@ -10,6 +10,7 @@ import { mountWorkspace } from './ui/workspace.js';
 import { prompt } from './ui/dialog.js';
 import { createProjectStore, defaultBackend } from './storage/projects.js';
 import { ELEMENTS, kindName } from './model/metamodel.js';
+import { canUseFolders } from './storage/folderfs.js';
 
 initTheme();
 const settings = createSettings();
@@ -45,7 +46,17 @@ commands.add({ id: 'help.library', title: 'Open the SysML library', group: 'Help
 
 // ---------- projects ----------
 commands.add({ id: 'project.new', title: 'New project…', group: 'Project', keywords: ['create'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.newProject(); } });
-commands.add({ id: 'project.import', title: 'Import a .loom.json project…', group: 'Project', keywords: ['open', 'load', 'file'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
+commands.add({ id: 'project.import', title: 'Import a project file (.loom.json or .zip)…', group: 'Project', keywords: ['open', 'load', 'file', 'zip'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
+commands.add({ id: 'project.openFolder', title: 'Open a project folder…', group: 'Project', keywords: ['open', 'folder', 'directory', 'git', 'sysml'], enabled: canUseFolders, run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.openFolder(); } });
+commands.add({
+  id: 'project.exportZip', title: 'Export this project as a .zip (SysML text)', group: 'Project', keywords: ['zip', 'download', 'sysml', 'text', 'git'], enabled: inProject,
+  run: async () => { if (!ws) return; await ws.flush(); const f = await projects.exportZip(ws.meta().id); download(f.filename, /** @type {any} */ (f.bytes), 'application/zip'); toast(`Exported ${f.filename}`); },
+});
+commands.add({ id: 'project.folder.link', title: 'Save this project to a folder…', group: 'Project', keywords: ['folder', 'directory', 'git', 'sysml', 'disk', 'link'], enabled: () => inProject() && canUseFolders(), run: () => ws?.linkFolder() });
+commands.add({ id: 'project.folder.sync', title: 'Save to the linked folder now', group: 'Project', keywords: ['folder', 'sync', 'write'], enabled: () => !!ws?.linked(), run: () => ws?.syncFolder() });
+commands.add({ id: 'project.folder.load', title: 'Load changes from the linked folder', group: 'Project', keywords: ['folder', 'git pull', 'reload', 'read'], enabled: () => !!ws?.linked(), run: () => ws?.loadFromFolder() });
+commands.add({ id: 'project.folder.unlink', title: 'Stop saving to the linked folder', group: 'Project', keywords: ['folder', 'unlink', 'disconnect'], enabled: () => !!ws?.linked(), run: () => ws?.unlinkFolder() });
+commands.add({ id: 'view.text', title: 'Show or hide the SysML v2 text', group: 'View', keys: 'Mod+E', keywords: ['text', 'sysml v2', 'code', 'textual notation', 'source'], enabled: inProject, run: () => settings.update((s) => { s.textPane = !s.textPane; }) });
 commands.add({
   id: 'project.export', title: 'Export this project (.loom.json)', group: 'Project', keys: 'Mod+Shift+E', keywords: ['save', 'download', 'file'], enabled: inProject,
   run: async () => { if (!ws) return; await ws.flush(); const f = await projects.exportFile(ws.meta().id); download(f.filename, f.text); toast(`Exported ${f.filename}`); },
@@ -138,7 +149,7 @@ async function doRoute() {
   if (m) {
     try {
       const { meta, model } = await projects.open(m[1]);
-      ws = mountWorkspace(app, { meta, model, settings, commands, save: (mm) => projects.save(meta.id, mm) });
+      ws = mountWorkspace(app, { meta, model, settings, commands, projects, save: (mm) => projects.save(meta.id, mm) });
       document.title = `${meta.name} · Pteronautics Loom`;
       return;
     } catch (e) {

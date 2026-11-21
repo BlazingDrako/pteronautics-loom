@@ -12,7 +12,15 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.5.0: requirements and traceability)
+## What works today (0.6.0: SysML v2 text and project folders)
+
+- **SysML v2 text**: every model is also text, one package per RFLP layer (see [the text format](#the-text-format) below). The printer is canonical: the same model always prints the same text, so diffs stay small.
+- **Text pane** (⌘E, or the button in the project panel): the layer's text beside any diagram, table or view, with syntax colors and line numbers. **Edit it directly**: your text is checked as you type, and applied as one undoable change when you pause (or press ⌘Enter, or click away), as long as it has no errors. Errors name the line and what is wrong ("Nothing named 'Endurace' can be used here", "A requirement cannot verify here: verify goes from a test case to a requirement"). Renaming or moving something in the text keeps it the same element, so it keeps its place on every diagram and every relationship to it. Click in the text to select that element; select an element anywhere to jump to its text.
+- **Project folders, ready for git**: *Save to a folder…* writes the project as four `.sysml` files plus `.loom/` (stable ids and diagram layouts, one entry per line), and keeps the folder up to date as you work. *Open folder* on the Home page opens one (for example a git repository). When the folder changed outside Loom (a `git pull`, another editor), Loom offers to load the changes as one undoable step, or keep its own version. Loom never touches other files in the folder. Folders need Chrome, Edge or Arc (the File System Access API).
+- **Zip**: export any project as a `.zip` of that same folder, and import `.zip` or `.loom.json` files, in every browser.
+- Error messages for relationships the rules forbid now read properly ("cannot have a satisfy relationship to…").
+
+### 0.5.0: requirements and traceability
 
 - **Systems V**: the project's home. The left arm runs from stakeholder needs through system requirements and architecture to physical design, the bottom is implementation, and the right arm climbs back up through component, integration and system verification to validation. Each stage shows its progress, measured from the model, and is paired with the stage that checks it. Click a stage for its evidence: what is done and what is missing, each one click from the element. Empty stages offer to add the first element.
 - **RFLP trace**: four lanes (Requirements, Functional, Logical, Physical) with a line for every trace relationship between lanes. Select a card to light up its **thread**: everything it realizes, up to the needs, and everything that realizes it, down to the physical parts. Coverage tiles (satisfied, verified, passed, functions allocated, logical realized, physical traced) filter to their gaps, and **Gaps only** shows everything missing a link.
@@ -62,6 +70,42 @@ They are separate programs under the Pteronautics name. Loom stands on its own: 
 
 **Not built yet:** the activity, state machine, sequence, parametric, use case and package diagrams, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
 
+## The text format
+
+Loom writes and reads a clear subset of the SysML v2 textual notation. Loom's own properties go in a standard metadata block, `@Loom { … }`, and are written only when they differ from the defaults.
+
+```
+package Logical {
+    @Loom { layer = "l"; }
+
+    part def 'Battery Pack' :> 'Energy Storage' {
+        doc /* A 12S lithium-polymer pack. */
+        attribute capacity = 16 [Ah];
+        out port pwrOut : 'DC Power 48 V';
+
+        satisfy 'Usable energy';
+        allocate to 'LiPo 12S 16 Ah pack';
+    }
+}
+```
+
+| You write | It is |
+| --- | --- |
+| `package Name { … }` | a package (each file is one RFLP layer, marked `@Loom { layer = "r"; }`) |
+| `requirement <'REQ-001'> Name { doc /* text */ }` | a requirement: its ID is the short name, its text the doc |
+| `verification def Name { verify Req; }` | a test case and the requirements it verifies |
+| `action def Name { … }` | a function (nest them for sub-functions) |
+| `part def Name :> General { … }` / `port def Name` | a block (specializing another) / an interface block |
+| `part name : Type [4];` | a part property, with multiplicity |
+| `in port name : ~Type;` | a port: direction, type, `~` for conjugated |
+| `attribute name = 16 [Ah];` | a value property with a unit |
+| `connect a.p to b.q;` / `connection Name connect …` | a connector, by part and port names inside the block |
+| `view Name { @Loom { kind = "bdd"; } }` | a diagram, table or matrix (`bdd`, `ibd`, `req`, `table`, `matrix`) |
+| `comment Name /* text */` | a note |
+| `satisfy X;` `verify X;` `refine X;` `derive X;` `copy X;` `allocate to X;` `dependency to X;` | relationships from the element they are written in |
+
+Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nearest element with that name; where two share one, qualify it (`Logical::'Battery Pack'`). Line notes (`// …`) are allowed and ignored.
+
 ## Run it
 
 - **macOS:** double-click `start.command` (first time: right-click → Open).
@@ -72,9 +116,9 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), and requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), and SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder) tests. Results are also left in `window.__results`.
 
-**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; and coverage, the requirements table and the dependency matrix on 10,000 requirements.
+**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; and printing, parsing, building and applying 16,000 lines of SysML v2 text.
 
 ### Type checking (optional, for development)
 
@@ -119,6 +163,15 @@ src/views/vhome.js           the Systems V
 src/views/trace.js           the RFLP trace lanes
 src/views/table.js           the requirements table
 src/views/matrix.js          the dependency matrix
+src/text/lexer.js            SysML v2 tokens, name quoting, doc text
+src/text/parser.js           the SysML v2 parser (text → tree)
+src/text/printer.js          the canonical printer (model → text, one file per layer)
+src/text/names.js            resolving names, shortest references, stable keys
+src/text/build.js            text → model: matching ids, references, applying as one edit
+src/ui/textpane.js           the text pane
+src/storage/folder.js        the project folder format (.sysml files and .loom/)
+src/storage/folderfs.js      real folders (File System Access API) and an in-memory folder
+src/storage/zip.js           zip reading and writing
 src/model/paths.js           diagram layout keys (part paths and ports)
 src/ui/fuzzy.js              fuzzy matching and ranking
 src/ui/dom.js                DOM helpers, icons, brand, theme

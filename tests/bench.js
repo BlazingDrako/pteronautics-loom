@@ -7,6 +7,10 @@ import { routeAll } from '../src/canvas/route.js';
 import { coverage } from '../src/model/trace.js';
 import { createTableView } from '../src/views/table.js';
 import { createMatrixView } from '../src/views/matrix.js';
+import { printPackage } from '../src/text/printer.js';
+import { parseLayer, buildSnapshot, applyLayerText } from '../src/text/build.js';
+import { highlight } from '../src/ui/textpane.js';
+import { projectFiles, modelFromFiles } from '../src/storage/folder.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -176,4 +180,43 @@ export async function runBench(report) {
   for (let i = 0; i < 30; i++) { ms.scrollTop = i * 1500; ms.scrollLeft = i * 6000; mScroll.push(time(() => mx.render())); }
   report({ name: 'Dependency matrix: scroll (median frame)', ms: median(mScroll), budget: 16 });
   mx.dispose(); thost.remove();
+
+  // ---------- 5. SysML v2 text ----------
+  const xm = createModel({ name: 'Text bench' });
+  const XL = xm.layers()[2].id;
+  xm.transact('Blocks', (tx) => {
+    /** @type {string[]} */
+    const defs = [];
+    for (let p = 0; p < 40; p++) {
+      const pkg = tx.create('package', { owner: XL, name: `Subsystem ${p}` });
+      for (let b = 0; b < 50; b++) {
+        const blk = tx.create('partDef', { owner: pkg, name: `Unit ${p}.${b}`, props: { doc: 'A unit of the subsystem.' } });
+        tx.create('attribute', { owner: blk, name: 'mass', props: { value: '1.5', unit: 'kg' } });
+        tx.create('port', { owner: blk, name: 'power', props: { direction: 'in' } });
+        if (defs.length) tx.create('part', { owner: blk, name: 'sub', props: { type: defs[defs.length - 1] } });
+        defs.push(blk);
+      }
+    }
+  });
+  let xtext = '';
+  const tPrint = time(() => { xtext = printPackage(xm, XL).text; });
+  const xlines = xtext.split('\n').length;
+  report({ name: `Print ${xlines.toLocaleString()} lines of SysML v2 (${xm.elementCount().toLocaleString()} elements)`, ms: tPrint, budget: 300, note: 'plan budget: parse or print a 10,000-line file in under 300 ms' });
+  /** @type {any} */
+  let xnode = null;
+  const tParse = time(() => { xnode = parseLayer(xtext); });
+  report({ name: `Parse ${xlines.toLocaleString()} lines of SysML v2`, ms: tParse, budget: 300 });
+  const tBuild = time(() => buildSnapshot(xm, [{ layerId: XL, node: xnode }]));
+  report({ name: 'Build the model from that text (match ids, resolve every name)', ms: tBuild, budget: 500 });
+  const edited = xtext.replace("part def 'Unit 7.7' {", "part def 'Unit 7.7 renamed' {").replace(/sub : 'Unit 7\.7'/g, "sub : 'Unit 7.7 renamed'");
+  const tApply = time(() => applyLayerText(xm, XL, edited));
+  report({ name: 'Apply an edit to that text (parse, build, diff, one transaction)', ms: tApply, budget: 1000, note: 'runs when you pause typing in the text pane' });
+  const tHl = time(() => highlight(xtext));
+  report({ name: `Syntax colors for ${xlines.toLocaleString()} lines (each keystroke in the text pane)`, ms: tHl, budget: 50 });
+  /** @type {Record<string, string>} */
+  let pf = {};
+  const tFiles = time(() => { pf = projectFiles(xm, { name: 'Text bench' }); });
+  report({ name: 'Write the project as folder files (text, ids, layouts)', ms: tFiles, budget: 500 });
+  const tLoad = time(() => modelFromFiles(pf));
+  report({ name: 'Open the project from its folder files', ms: tLoad, budget: 1000 });
 }
