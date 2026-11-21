@@ -7,7 +7,7 @@ import { requirementsIn } from '../../src/model/trace.js';
 import { exportReqif, readReqif, reqifText, roleOf } from '../../src/interop/reqif.js';
 import { mergeRequirements, enumValue } from '../../src/interop/reqs.js';
 import { parseCsv, toCsv, writeXlsx, readXlsx, rowsToRecords, requirementRows, requirementsXlsx } from '../../src/interop/sheet.js';
-import { importXmi, xmiText } from '../../src/interop/xmi.js';
+import { importXmi, xmiText, layerFromName } from '../../src/interop/xmi.js';
 import { createApiClient, modelFromApi, apiElementsOf, uuidFor } from '../../src/interop/api.js';
 import { buildDocument, SECTIONS } from '../../src/interop/docs.js';
 import { diagramSvg } from '../../src/interop/snapshot.js';
@@ -158,6 +158,21 @@ export async function interopTests(log) {
     </packagedElement>
     <packagedElement xmi:type="uml:Abstraction" xmi:id="sat1"><client xmi:idref="bBatt"/><supplier xmi:idref="r2"/></packagedElement>
   </packagedElement>
+  <packagedElement xmi:type="uml:Package" xmi:id="pOps" name="Operational Analysis">
+    <packagedElement xmi:type="uml:Actor" xmi:id="ac1" name="Pilot"/>
+    <packagedElement xmi:type="uml:UseCase" xmi:id="uc1" name="Fly a mission"/>
+    <packagedElement xmi:type="uml:Package" xmi:id="pOpsSub" name="Detail">
+      <packagedElement xmi:type="uml:Class" xmi:id="bOps" name="Ground Station"/>
+    </packagedElement>
+  </packagedElement>
+  <packagedElement xmi:type="uml:Package" xmi:id="pMisc" name="Work in progress">
+    <packagedElement xmi:type="uml:Activity" xmi:id="w1" name="Land"/>
+    <packagedElement xmi:type="uml:Activity" xmi:id="w2" name="Charge"/>
+    <packagedElement xmi:type="uml:UseCase" xmi:id="w3" name="Recharge between flights"/>
+  </packagedElement>
+  <packagedElement xmi:type="uml:Package" xmi:id="pHw" name="Physical Architecture">
+    <packagedElement xmi:type="uml:Class" xmi:id="bCell" name="Li-ion cell"/>
+  </packagedElement>
   <packagedElement xmi:type="uml:Package" xmi:id="pFn" name="Functions">
     <packagedElement xmi:type="uml:Activity" xmi:id="act" name="Fly">
       <node xmi:type="uml:InitialNode" xmi:id="n0"/>
@@ -205,6 +220,12 @@ export async function interopTests(log) {
   log('XMI: the imported model validates with no errors', validate(xmo).problems.filter((p) => p.severity === 'error').length === 0, validate(xmo).problems.filter((p) => p.severity === 'error').map((p) => p.message).join('; '));
   const mdzip = await zip({ 'com.nomagic.magicdraw.uml_model.model': cameo, 'com.nomagic.magicdraw.uml_model.snapshot': 'binary' });
   log('XMI: .mdzip project files are read', (await xmiText(mdzip)).includes('Drone'));
+  const layerName = (/** @type {string} */ kind, /** @type {string} */ name) => { const e = find(kind, name); return e ? xmo.layerOf(e.id) : null; };
+  log('XMI: a package named for a layer keeps all it holds there (use cases, actors, a sub-package with a block)', layerName('useCase', 'Fly a mission') === 'f' && layerName('actor', 'Pilot') === 'f' && layerName('partDef', 'Ground Station') === 'f' && xmo.byKind('package').filter((p) => p.name === 'Operational Analysis').length === 1, `${layerName('useCase', 'Fly a mission')} ${layerName('actor', 'Pilot')} ${layerName('partDef', 'Ground Station')}`);
+  log('XMI: a package with no telling name goes where most of it belongs, whole', layerName('useCase', 'Recharge between flights') === 'f' && layerName('action', 'Land') === 'f' && xmo.byKind('package').filter((p) => p.name === 'Work in progress').length === 1);
+  log('XMI: "Physical Architecture" is physical, not logical', layerName('partDef', 'Li-ion cell') === 'p');
+  log('XMI: the report says where packages went and why', xi.notes.some((n) => /Operational Analysis.*Functional, by its name/.test(n)) && xi.notes.some((n) => /Work in progress.*Functional, by what it holds/.test(n)));
+  log('XMI: layer words in names', layerFromName('Functional Requirements') === 'r' && layerFromName('Physical Architecture') === 'p' && layerFromName('Functional Architecture') === 'f' && layerFromName('System Architecture') === 'l' && layerFromName('Drone') === null);
   log('XMI: a file without a UML model is refused', /no UML model/.test(err(() => importXmi('<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001"/>'))));
 
   // ---------- SysML v2 API ----------

@@ -8,9 +8,11 @@
 // use cases and actors, sequence diagrams (lifelines and messages), comments. Diagram layouts
 // are Cameo's own format and are not read; everything skipped is counted in the report.
 //
-// Cameo puts everything in one package tree; Loom has four RFLP layers. Each element goes to
-// the layer its kind belongs to (requirements and tests to Requirements, activities to
-// Functional, blocks to Logical), inside a copy of the package path it had.
+// Cameo puts everything in one package tree; Loom has four RFLP layers. Packages are kept
+// whole: a package goes to the layer its name says ("Functional Architecture", "Physical",
+// "Requirements"…), or else the one most of its contents belong to, and everything in it goes
+// along. Only a package with no clear layer (a mix, like a model's top package) is split, each
+// element going to the layer of its kind inside a copy of the package path it had.
 import { parseXml, kids, kid, all, attr, local, InteropError } from './xml.js';
 import { createModel, ModelError } from '../model/model.js';
 import { unzip, isZip } from '../storage/zip.js';
@@ -18,6 +20,20 @@ import { isUnit } from '../analysis/units.js';
 import { kindName } from '../model/metamodel.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
+
+/**
+ * The RFLP layer a package's name points to, or null. Checked in this order so that
+ * "Functional Requirements" is requirements and "Physical Architecture" is physical.
+ * @param {string} name
+ */
+export function layerFromName(name) {
+  const n = name.toLowerCase();
+  if (/\b(requirements?|reqs?|needs|specifications?|verification|validation|tests?|test cases|v&v)\b/.test(n)) return 'r';
+  if (/\b(physical|hardware|products?|implementation|components?|bom|parts list|cots)\b/.test(n)) return 'p';
+  if (/\b(functional|functions?|behaviou?rs?|activit(y|ies)|operations?|operational|scenarios?|use cases?|missions?|conops)\b/.test(n)) return 'f';
+  if (/\b(logical|architecture|structure|structural|subsystems?|interfaces?|blocks?)\b/.test(n)) return 'l';
+  return null;
+}
 /**
  * @typedef {{
  *   model: Model, name: string,
@@ -115,6 +131,40 @@ export function importXmi(text) {
   /** Every XMI element's XMI owner (for package paths). */
   const ownerOf = (/** @type {Element} */ el) => { let p = el.parentElement; while (p && !attr(p, 'id')) p = p.parentElement; return p; };
 
+  // ---------- which layer each package belongs to ----------
+  const classifierTags = ['packagedElement', 'nestedClassifier', 'ownedBehavior', 'ownedUseCase'];
+  const allClassifiers = [...umlModel.getElementsByTagName('*')].filter((el) => classifierTags.includes(local(el)) && kindOf(el) && kindOf(el) !== 'package');
+  /** Per package: how many elements inside it (at any depth) each layer would take. @type {Map<Element, Record<string, number>>} */
+  const tally = new Map();
+  for (const el of allClassifiers) {
+    const layer = LAYER_OF[/** @type {string} */ (kindOf(el))] || 'l';
+    for (let p = ownerOf(el); p && p !== umlModel; p = ownerOf(p)) {
+      if (kindOf(p) !== 'package') continue;
+      const t = tally.get(p) || tally.set(p, { r: 0, f: 0, l: 0, p: 0 }).get(p);
+      if (t) t[layer]++;
+    }
+  }
+  /** @type {Map<Element, { layer: string | null, why: string }>} */
+  const decided = new Map();
+  /** The layer a package belongs to, or null when it is a mix to split. @param {Element} xp @returns {string | null} */
+  const packageLayer = (xp) => {
+    const known = decided.get(xp);
+    if (known) return known.layer;
+    const named = layerFromName(attr(xp, 'name') || '');
+    const parent = ownerOf(xp);
+    const up = parent && parent !== umlModel && kindOf(parent) === 'package' ? packageLayer(parent) : null;
+    const t = tally.get(xp);
+    const total = t ? t.r + t.f + t.l + t.p : 0;
+    const top = t ? /** @type {string} */ (Object.entries(t).sort((a, b) => b[1] - a[1])[0][0]) : null;
+    /** @type {{ layer: string | null, why: string }} */
+    const d = named ? { layer: named, why: 'its name' }
+      : up ? { layer: up, why: 'its package' }
+        : t && top && total && t[top] / total >= 0.6 ? { layer: top, why: 'what it holds' }
+          : { layer: null, why: '' };
+    decided.set(xp, d);
+    return d.layer;
+  };
+
   m.transact('Import XMI', (tx) => {
     /** Make an element, counting it, or note why it could not be made. @param {string} kind @param {string} owner @param {Record<string, any>} o @param {string} [xid] */
     const make = (kind, owner, o, xid) => {
@@ -148,14 +198,15 @@ export function importXmi(text) {
     const docOf = (/** @type {Element} */ el) => kids(el, 'ownedComment').map((c) => (c.getAttribute('body') ?? kid(c, 'body')?.textContent ?? '').trim()).filter(Boolean).join('\n\n');
 
     // ---------- 1. classifiers: requirements, blocks, value types, activities, use cases… ----------
-    const classifiers = [...umlModel.getElementsByTagName('*')].filter((el) => ['packagedElement', 'nestedClassifier', 'ownedBehavior', 'ownedUseCase'].includes(local(el)) && kindOf(el) && kindOf(el) !== 'package');
+    const classifiers = allClassifiers;
     // a requirement inside a requirement keeps that nesting; everything else goes to its package
     const ordered = classifiers.sort((a, b) => depth(a) - depth(b));
     function depth(/** @type {Element} */ el) { let d = 0; for (let p = el.parentElement; p; p = p.parentElement) d++; return d; }
     for (const el of ordered) {
       const kind = /** @type {string} */ (kindOf(el)), xid = /** @type {string} */ (attr(el, 'id'));
       const xo = ownerOf(el);
-      let owner = pkgIn(packageOf(el), LAYER_OF[kind] || 'l');
+      const xpkg = packageOf(el);
+      let owner = pkgIn(xpkg, (xpkg && xpkg !== umlModel && packageLayer(xpkg)) || LAYER_OF[kind] || 'l');
       if (kind === 'requirement' && xo && made.has(attr(xo, 'id') || '') && m.get(/** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id')))))?.kind === 'requirement') owner = /** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id'))));
       if (kind === 'interaction' && xo && made.get(attr(xo, 'id') || '') && m.get(/** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id')))))?.kind === 'partDef') owner = /** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id'))));
       /** @type {Record<string, any>} */
@@ -190,7 +241,7 @@ export function importXmi(text) {
     // empty packages still matter (a structure people expect to see): keep them in Logical
     for (const el of [...umlModel.getElementsByTagName('*')].filter((x) => local(x) === 'packagedElement' && typeOf(x) === 'uml:Package')) {
       const any = [...pkgCopy.keys()].some((k) => k.endsWith(`|${attr(el, 'id')}`));
-      if (!any && !el.querySelector('*')) pkgIn(el, 'l');
+      if (!any && !el.querySelector('*')) pkgIn(el, packageLayer(el) || 'l');
     }
 
     // ---------- 2. features: parts, values, ports, constraint properties ----------
@@ -391,6 +442,10 @@ export function importXmi(text) {
     if (diagrams) skip('diagram layouts (Cameo\'s own format: open the elements on new Loom diagrams)', diagrams);
   });
   m.clear();
+  const LAYER_NAMES = /** @type {Record<string, string>} */ ({ r: 'Requirements', f: 'Functional', l: 'Logical', p: 'Physical' });
+  for (const [xp, d] of decided) {
+    if (d.why === 'its name' || d.why === 'what it holds') notes.unshift(`Package “${attr(xp, 'name') || 'Package'}” went to ${LAYER_NAMES[/** @type {string} */ (d.layer)]}, by ${d.why}`);
+  }
   return { model: m, name: m.root().name, counts, skipped, notes };
 
   /** @param {Element} u a QUDV unit (an instance specification) */

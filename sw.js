@@ -4,7 +4,7 @@
 // Every app file is cached when the worker installs. While online, files still come from the
 // network first (so a new version shows up on the next load) and the cache is refreshed;
 // offline, or when the network is slow to answer, the cached copy is used.
-const CACHE = 'loom-1.0.0-d717d9156c';
+const CACHE = 'loom-1.0.0-6ee840d73e';
 const FILES = [
   "index.html",
   "manifest.webmanifest",
