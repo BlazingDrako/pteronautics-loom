@@ -83,7 +83,7 @@ export function presetItems(ctx, d) {
 }
 
 const GRID = 10;
-const LOD_ZOOM = 0.45;     // below this zoom, boxes show only their name
+const LOD_ZOOM = 0.2;      // below this zoom (text a couple of pixels high), boxes show only their name
 const CULL_MARGIN = 160;   // px around the window that is still drawn
 const MIN_K = 0.08, MAX_K = 3;
 
@@ -1132,7 +1132,8 @@ export function createDiagramView(ctx) {
   // double-click a box: its properties (F2 or Enter renames it in place)
   stage.addEventListener('dblclick', (ev) => {
     if (tool) return;
-    const n = /** @type {Element} */ (ev.target).closest('.node');
+    // the stage holds the pointer while clicking, so look at what is under it
+    const n = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.node');
     if (!n) return;
     const id = /** @type {string} */ (/** @type {HTMLElement} */ (n).dataset.id);
     const el = model.get(id.split('/').pop() || id);

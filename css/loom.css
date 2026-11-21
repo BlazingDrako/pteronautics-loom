@@ -290,8 +290,8 @@ select.field { padding-right: 6px; }
 .popmenu-title { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--text-3); padding: 6px 10px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .popmenu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; font-size: 13px; }
 .popmenu button:hover, .popmenu button:focus-visible { background: var(--accent-soft); outline: none; }
-.popmenu-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.popmenu-hint { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.popmenu-label { flex: 1 0 auto; max-width: 100%; overflow-wrap: break-word; }
+.popmenu-hint { flex: 0 1 auto; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); text-align: right; overflow-wrap: break-word; }
 .popmenu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 
 /* ---------- Home ---------- */
@@ -1157,7 +1157,7 @@ textarea.tinput { position: absolute; left: 3px; top: 3px; width: calc(100% - 6p
 .custom-form input.field.sm { width: 160px; }
 @media (max-width: 640px) { .sev-chip { display: none; } .rule-row { flex-wrap: wrap; } }
 .prefs-tabs { margin-bottom: 4px; align-self: flex-start; max-width: 100%; overflow-x: auto; }
-.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px; }
 .swatch-btn { width: 30px; height: 30px; border-radius: 99px; border: 2px solid var(--bg-elev); box-shadow: 0 0 0 1px var(--border-strong); background: var(--acc); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .swatch-btn[aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
 .swatch-btn svg { width: 15px; height: 15px; }
@@ -1252,3 +1252,7 @@ select.field[size] { height: auto; padding: 4px; margin-top: 8px; }
 :root[data-density="compact"] .sec { margin: 14px 0 6px; }
 :root[data-density="compact"] .kv { padding: 4px 0; }
 :root[data-density="compact"] .brand-mark, :root[data-density="compact"] .brand svg { width: 26px; height: 26px; }
+
+/* two-finger swipes over a diagram pan it, instead of going back a page; elsewhere they still navigate */
+html:has(.dstage:hover), html:has(.sdstage:hover), html:has(.dstage:hover) body, html:has(.sdstage:hover) body { overscroll-behavior-x: none; }
+.dstage, .sdstage, .tscroll, .mscroll { overscroll-behavior: contain; }

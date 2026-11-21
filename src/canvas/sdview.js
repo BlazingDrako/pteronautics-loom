@@ -384,7 +384,7 @@ export function createSequenceView(ctx) {
   });
   // double-click a message or lifeline: its properties
   stage.addEventListener('dblclick', (ev) => {
-    const t = /** @type {Element} */ (ev.target);
+    const t = /** @type {Element} */ (document.elementFromPoint(ev.clientX, ev.clientY) || ev.target);
     const id = /** @type {SVGElement | null} */ (t.closest('[data-head]'))?.dataset.head || /** @type {SVGElement | null} */ (t.closest('[data-id]'))?.dataset.id;
     if (!id) return;
     if (ctx.openProps && model.get(id)) ctx.openProps(id); else startRename(id);

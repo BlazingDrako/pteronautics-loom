@@ -767,7 +767,7 @@ export function createIbdView(ctx) {
 
   // double-click a part or port: its properties
   stage.addEventListener('dblclick', (ev) => {
-    const t = /** @type {Element} */ (ev.target);
+    const t = /** @type {Element} */ (document.elementFromPoint(ev.clientX, ev.clientY) || ev.target);
     const k = /** @type {HTMLElement | null} */ (t.closest('.port') || t.closest('.part'));
     if (!k?.dataset.key) return;
     const id = k.dataset.key.split(/[/#]/).pop() || '';

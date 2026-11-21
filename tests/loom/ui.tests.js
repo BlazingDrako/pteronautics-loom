@@ -46,6 +46,15 @@ export async function uiTests(log) {
     twisty.click();
     await wait();
     log('The arrow opens a row straight away, without selecting it first', rowOf(av.id)?.getAttribute('aria-expanded') === 'true' && ws.selected() !== av.id);
+    // a folder can be folded with the selection inside it
+    ws.select(m.children(av.id)[0].id);
+    await wait();
+    /** @type {HTMLElement} */ (rowOf(av.id)?.querySelector('[data-twisty]')).click();
+    await wait();
+    log('A row folds even when what is selected is inside it', rowOf(av.id)?.getAttribute('aria-expanded') === 'false');
+    ws.select(null);
+    /** @type {HTMLElement} */ (rowOf(av.id)?.querySelector('[data-twisty]')).click();
+    await wait();
     const LINES = ['flow', 'transition', 'connector', 'binding'];
     log('Its contents show, without the lines (connectors, flows) unless asked for', m.children(av.id).every((c) => !!rowOf(c.id) === !LINES.includes(c.kind)) && m.children(av.id).some((c) => LINES.includes(c.kind)));
     settings.update((st) => { st.treeLines = true; });
@@ -175,6 +184,12 @@ export async function uiTests(log) {
     const newBlock = m.byKind('partDef').find((x) => x.name.startsWith('Block '));
     log('Clicking the diagram places a new block there', m.byKind('partDef').length === nBlocks + 1 && !!newBlock && !!diag && !!m.get(diag.id)?.layout?.nodes[newBlock.id]);
     log('…and the tool is put down again', !stage.classList.contains('tool-place'));
+    // double-click a box on the diagram: its properties (where the pointer is, though the stage holds the pointer)
+    const pn = stage.querySelector(`.node[data-id="${prop.id}"]`);
+    if (pn) { const c = center(pn); stage.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: c.x, clientY: c.y })); }
+    await wait();
+    log('Double-clicking a box on a diagram opens its properties', !panel.hidden && panel.querySelector('.ppanel-name')?.textContent === 'Propulsion System');
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     document.querySelector('.drename')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     // relate two boxes with a relationship tool: click the source, then the target
     /** @type {HTMLElement} */ (host.querySelector('.tbtn[aria-label="Generalization"]')).click();

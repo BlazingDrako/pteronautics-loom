@@ -97,11 +97,17 @@ export async function releaseTests(log) {
   const bv = createValidator(big, { worker: true, delay: 0 });
   const tStart = performance.now() - t0;
   await bv.now();
-  const t1 = performance.now();
-  big.transact('Edit', (tx) => tx.rename(/** @type {any} */ (big.byKind('partDef')[10]).id, 'Renamed'));
-  const pending = bv.now();
-  const tSend = performance.now() - t1;
-  const br = await pending;
+  // the page's share of each edit: the edit itself and handing the change to the worker (median of 5)
+  const sends = [];
+  let br = /** @type {any} */ (null);
+  for (let i = 0; i < 5; i++) {
+    const t1 = performance.now();
+    big.transact('Edit', (tx) => tx.rename(/** @type {any} */ (big.byKind('partDef')[10 + i]).id, `Renamed ${i}`));
+    const pending = bv.now();
+    sends.push(performance.now() - t1);
+    br = await pending;
+  }
+  const tSend = sends.sort((x, y) => x - y)[2];
   log(`Starting the worker on ${big.count().toLocaleString()} elements takes the page under 150 ms (took ${Math.round(tStart)} ms)`, tStart < 150);
   log(`Sending an edit to the worker takes the page under 2 ms (took ${tSend.toFixed(2)} ms)`, tSend < 2);
   log(`The worker checks ${big.count().toLocaleString()} elements in under 100 ms (took ${Math.round(br.ms)} ms)`, br.ms < 100);

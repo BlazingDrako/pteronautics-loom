@@ -58,6 +58,8 @@ export function createTree(ctx) {
   const marker = h('div', { class: 'tree-marker', hidden: true, 'aria-hidden': 'true' });
   /** @type {string | null} */
   let renaming = null;
+  /** The selection the tree last opened folders for. @type {string | null} */
+  let revealed = null;
 
   /** Visible rows in order, for keyboard navigation. @returns {string[]} */
   const visible = () => [...el.querySelectorAll('[role="treeitem"]')].map((n) => /** @type {HTMLElement} */ (n).dataset.id || '');
@@ -422,7 +424,8 @@ export function createTree(ctx) {
     if (filter) { const q = filter; filter = ''; keep = null; setFilterQuiet(q); }
     // the selected element's ancestors are always open, so a selection is never hidden
     const sel = ctx.selected();
-    if (sel && m.get(sel) && !isRel(/** @type {Element} */ (m.get(sel)).kind) && !keep) for (const a of m.path(sel)) ctx.expanded.add(a.id);
+    // (only when the selection changes, so you can still fold a folder with the selection inside)
+    if (sel !== revealed) { revealed = sel; if (sel && m.get(sel) && !isRel(/** @type {Element} */ (m.get(sel)).kind) && !keep) for (const a of m.path(sel)) ctx.expanded.add(a.id); }
     const layers = keep ? m.layers().filter((l) => keep?.has(l.id)) : m.layers();
     el.replaceChildren(...layers.flatMap((l) => rows(l, 0)), ...(keep && !hits.size ? [h('div', { class: 'tree-empty' }, `Nothing named “${filter}”`)] : []), marker);
     marker.hidden = true;
