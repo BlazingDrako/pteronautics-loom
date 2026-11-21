@@ -348,7 +348,7 @@ export function createSequenceView(ctx) {
     else if (item) { ctx.select(/** @type {string} */ (/** @type {SVGElement} */ (item).dataset.id)); return; }
     else if (life) { const from = /** @type {string} */ (/** @type {SVGElement} */ (life).dataset.life); drag = { mode: 'message', from, x: p.x, y: p.y }; }
     else { ctx.select(null); return; }
-    stage.setPointerCapture(ev.pointerId);
+    try { stage.setPointerCapture(ev.pointerId); } catch { /* a pointer that already ended */ }
   });
   stage.addEventListener('pointermove', (ev) => {
     if (!drag) return;

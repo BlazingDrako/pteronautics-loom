@@ -122,6 +122,12 @@ folders are this same text, plus `.loom/` for ids and layout. The README lists t
 On a diagram: double-click a box for its properties, F2 or Enter to rename it, scroll to pan,
 and pinch or Ctrl/⌘+scroll to zoom. On an internal block diagram, drag from a port to connect it.
 
+Lines (relationships, flows, transitions, connectors) route themselves, but you can shape them:
+**drag a segment** of a line to move it sideways (the line stays square and its ends stay on
+their boxes), and **drag a line's label** to move it. Double-click a line or its label to make it
+automatic again; *View → Make every line automatic again* and **Tidy layout** do that for the
+whole diagram. Shaped lines are kept with the diagram, in project folders too.
+
 ## Where your work is
 
 Projects live in this browser's storage on this device (IndexedDB). Export a `.loom.json` or a

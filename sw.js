@@ -4,7 +4,7 @@
 // Every app file is cached when the worker installs. While online, files still come from the
 // network first (so a new version shows up on the next load) and the cache is refreshed;
 // offline, or when the network is slow to answer, the cached copy is used.
-const CACHE = 'loom-1.1.0-9312b2ec06';
+const CACHE = 'loom-1.1.0-7f22150c67';
 const FILES = [
   "index.html",
   "manifest.webmanifest",
@@ -25,6 +25,7 @@ const FILES = [
   "src/canvas/ibd.js",
   "src/canvas/ibdview.js",
   "src/canvas/layout.js",
+  "src/canvas/lines.js",
   "src/canvas/measure.js",
   "src/canvas/par.js",
   "src/canvas/populate.js",

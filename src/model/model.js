@@ -14,19 +14,38 @@ import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
  *   source?: string, target?: string,    // relationships only
  *   layer?: import('./metamodel.js').Layer, // the four top-level layer packages only
  *   props: Record<string, any>,
- *   layout?: { nodes: Record<string, Rect> }, // diagrams only: where each shown element sits
+ *   layout?: { nodes: Record<string, Rect>, lines?: Record<string, Line> }, // diagrams only: where each shown element sits, and lines shaped by hand
  * }} Element
+ * @typedef {{ pts?: [number, number][], lx?: number, ly?: number }} Line  a line on a diagram, by its edge id: bends placed by hand (pts, between its ends) and its label moved by (lx, ly)
  * @typedef {{ x: number, y: number, w: number, h: number, c?: 1, fill?: string }} Rect  c: collapsed (internal block diagrams); fill: a color name (see FILLS)
  * @typedef {{ t: 'add', el: Element, index: number }
  *   | { t: 'del', id: string }
  *   | { t: 'set', id: string, name?: string, props?: Record<string, any> }
  *   | { t: 'move', id: string, owner: string, index: number }
- *   | { t: 'lay', id: string, nodes: Record<string, Rect | null> }} Op
+ *   | { t: 'lay', id: string, nodes: Record<string, Rect | null>, lines?: Record<string, Line | null> }} Op
  * @typedef {{ label: string, ops: Op[] }} Entry
  * @typedef {{ label: string, cause: 'do' | 'undo' | 'redo' | 'load', ids: Set<string> }} ChangeEvent
  */
 
 export class ModelError extends Error {}
+
+/**
+ * A hand-shaped line kept within sensible limits, or null when there is nothing to keep.
+ * @param {any} l @returns {Line | null}
+ */
+export function cleanLine(l) {
+  if (!l || typeof l !== 'object') return null;
+  const num = (/** @type {any} */ v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(1e6, Math.max(-1e6, v))) : null);
+  /** @type {Line} */
+  const out = {};
+  if (Array.isArray(l.pts)) {
+    const pts = /** @type {[number, number][]} */ (l.pts.slice(0, 40).map((p) => (Array.isArray(p) ? [num(p[0]), num(p[1])] : [null, null])).filter((p) => p[0] !== null && p[1] !== null));
+    if (pts.length) out.pts = pts;
+  }
+  const lx = num(l.lx), ly = num(l.ly);
+  if (lx || ly) { out.lx = lx || 0; out.ly = ly || 0; }
+  return out.pts || out.lx !== undefined ? out : null;
+}
 
 /** Does a list of applied stereotypes use `id` (as the stereotype or one of its tags)? @param {any} list @param {string} id */
 const usesStereo = (list, id) => Array.isArray(list) && list.some((a) => a.s === id || (a.tags && id in a.tags));
@@ -144,8 +163,20 @@ export function createModel(opts = {}) {
           inv[k] = nodes[k] ? { ...nodes[k] } : null;
           if (r) nodes[k] = { ...r }; else delete nodes[k];
         }
+        /** @type {Record<string, Line | null> | undefined} */
+        let invLines;
+        if (op.lines) {
+          const lay = /** @type {NonNullable<Element['layout']>} */ (d.layout);
+          const lines = lay.lines || (lay.lines = {});
+          invLines = {};
+          for (const [k, l] of Object.entries(op.lines)) {
+            invLines[k] = lines[k] ? clone(lines[k]) : null;
+            if (l) lines[k] = clone(l); else delete lines[k];
+          }
+          if (!Object.keys(lines).length) delete lay.lines;
+        }
         open?.ids.add(d.id);
-        return { t: 'lay', id: d.id, nodes: inv };
+        return invLines ? { t: 'lay', id: d.id, nodes: inv, lines: invLines } : { t: 'lay', id: d.id, nodes: inv };
       }
       case 'move': {
         const el = must(op.id);
@@ -439,6 +470,25 @@ export function createModel(opts = {}) {
         if (!old || old.x !== rect.x || old.y !== rect.y || old.w !== rect.w || old.h !== rect.h || (old.c || 0) !== (rect.c || 0) || (old.fill || '') !== (rect.fill || '')) changes[id] = rect;
       }
       if (Object.keys(changes).length) run({ t: 'lay', id: diagramId, nodes: changes });
+    },
+    /**
+     * Shape lines on a diagram by hand: bends between a line's ends and where its label sits,
+     * by edge id (null puts the line back to automatic).
+     * @param {string} diagramId @param {Record<string, Line | null>} patch
+     */
+    shape(diagramId, patch) {
+      const d = must(diagramId);
+      if (!isDiagram(d.kind) || !d.layout) throw new ModelError(`${d.name} is not a diagram`);
+      /** @type {Record<string, Line | null>} */
+      const changes = {};
+      for (const [key, l] of Object.entries(patch)) {
+        if (typeof key !== 'string' || key.length > 200) continue;
+        const cur = d.layout.lines?.[key];
+        const clean = cleanLine(l);
+        if (!clean) { if (cur) changes[key] = null; continue; }
+        if (JSON.stringify(cur) !== JSON.stringify(clean)) changes[key] = clean;
+      }
+      if (Object.keys(changes).length) run({ t: 'lay', id: diagramId, nodes: {}, lines: changes });
     },
     /**
      * Create a relationship.

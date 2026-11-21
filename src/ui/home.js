@@ -239,9 +239,11 @@ export async function mountHome(root, ctx) {
             h('p', {}, 'Start a blank project, open a sample to look around (a survey drone, a CubeSat’s power system or a landing gear), or bring in a project file or folder.'),
             h('button', { class: 'btn', type: 'button', onclick: newProject }, icon('plus'), 'New project'))),
       h('footer', { class: 'home-foot' },
-        h('span', {}, 'Part of the Pteronautics family: ',
+        h('span', {}, 'Part of the ',
+          h('a', { href: 'https://blazingdrako.github.io/pteronautics/', target: '_blank', rel: 'noopener' }, 'Pteronautics'), ' family: ',
           h('a', { href: 'https://blazingdrako.github.io/pteronautics-atlas/', target: '_blank', rel: 'noopener' }, 'Atlas'), ' · ',
-          h('a', { href: 'https://github.com/BlazingDrako/pteronautics-works', target: '_blank', rel: 'noopener' }, 'Works'), ' · Loom'),
+          h('a', { href: 'https://blazingdrako.github.io/pteronautics-works/', target: '_blank', rel: 'noopener' }, 'Works'), ' · Loom'),
+        h('span', { class: 'home-credit' }, 'Made by Andrew Aguiar'),
         h('span', { class: 'mono' }, `Loom ${VERSION} · GPLv3`)),
       fileInput);
   }

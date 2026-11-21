@@ -18,6 +18,7 @@ import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { FRAME, parseKey, partKey, portKey, ownerKey } from '../model/paths.js';
 import { kindName } from '../model/metamodel.js';
 import { createToolPalette } from './tools.js';
+import { shapeRoute, moveSegment, nearestSegment, lineToKeep } from './lines.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -185,13 +186,16 @@ export function createIbdView(ctx) {
       out.push('</g>');
     }
 
-    // connectors
+    // connectors (shaped by hand where they were: drag a segment, or the item label)
+    const shapes = d.layout?.lines || {};
     for (const c of sc.conns) {
-      const pts = cache.routes.get(c.id);
-      if (!pts || pts.length < 2) continue;
+      const auto = cache.routes.get(c.id);
+      if (!auto || auto.length < 2) continue;
+      const pts = lineDrag?.id === c.id && lineDrag.pts ? lineDrag.pts : shapeRoute(auto, shapes[c.id]);
+      const off = lineDrag?.id === c.id && lineDrag.label ? lineDrag.label : { x: shapes[c.id]?.lx || 0, y: shapes[c.id]?.ly || 0 };
       const dPath = pathData(pts);
       const on = c.el.id === selectedEl;
-      out.push(`<path class="c-hit" data-el="${c.el.id}" d="${dPath}"/><path class="conn${on ? ' sel' : ''}" d="${dPath}"/>`);
+      out.push(`<path class="c-hit" data-el="${c.el.id}" data-line="${esc(c.id)}" d="${dPath}"/><path class="conn${on ? ' sel' : ''}" d="${dPath}"/>`);
       if (showFlows && c.flow !== 'None') {
         // the flow arrow and label sit on the longest segment
         let bi = 1, bl = -1;
@@ -206,7 +210,7 @@ export function createIbdView(ctx) {
         }
         if (c.item) {
           const horiz = u.y === 0;
-          out.push(`<text class="flow-label" x="${horiz ? mx : mx + 10}" y="${horiz ? my + 16 : my + 4}" text-anchor="${horiz ? 'middle' : 'start'}">${esc(ellipsize(c.item, 180, FONTS.label))}</text>`);
+          out.push(`<text class="flow-label" data-line="${esc(c.id)}" x="${(horiz ? mx : mx + 10) + off.x}" y="${(horiz ? my + 16 : my + 4) + off.y}" text-anchor="${horiz ? 'middle' : 'start'}">${esc(ellipsize(c.item, 180, FONTS.label))}</text>`);
         }
       }
     }
@@ -468,7 +472,9 @@ export function createIbdView(ctx) {
     const patch = {};
     for (const k of Object.keys(layout())) if (layout()[k] && packed[k]) patch[k] = layout()[k].c ? { ...packed[k], c: 1 } : packed[k];
     for (const k of Object.keys(layout())) if (!packed[k]) patch[k] = layout()[k]; // keep what packing does not know (deeper parts)
-    commit('Tidy layout', growToFit(patch));
+    const fitted = growToFit(patch), lines = d.layout?.lines;
+    // tidying routes every connector afresh, so connectors shaped by hand go back to automatic
+    ctx.edit('Tidy layout', (tx) => { tx.place(diagramId, fitted); if (lines) tx.shape(diagramId, Object.fromEntries(Object.keys(lines).map((k) => [k, null]))); });
     fit();
   }
   /** @param {HTMLElement} anchor */
@@ -621,9 +627,16 @@ export function createIbdView(ctx) {
    *  | { mode: 'slide', key: string }
    *  | { mode: 'link', key: string, start: Pt, moved: boolean }
    *  | { mode: 'lasso', start: Pt, base: Set<string> }
-   *  | { mode: 'pan', sx: number, sy: number, cx: number, cy: number }}
+   *  | { mode: 'pan', sx: number, sy: number, cx: number, cy: number }
+   *  | { mode: 'conn', el: string, line: string, start: Pt }
+   *  | { mode: 'segment', id: string, el: string, base: Pt[], seg: number, start: Pt }
+   *  | { mode: 'label', id: string, el: string, start: Pt, base: Pt, moved: boolean }}
    */
   let drag = null;
+  /** A connector being shaped, before it is committed. @type {null | { id: string, pts?: Pt[], label?: Pt }} */
+  let lineDrag = null;
+  /** A connector's points as drawn. @param {string} id */
+  const connPoints = (id) => { const auto = cache.routes.get(id); return auto ? shapeRoute(auto, diagram()?.layout?.lines?.[id]) : null; };
 
   stage.addEventListener('pointerdown', (ev) => {
     if (ev.target instanceof HTMLInputElement) return;
@@ -640,7 +653,17 @@ export function createIbdView(ctx) {
       const key = keyOf('.port');
       if (ev.altKey) drag = { mode: 'slide', key };
       else drag = { mode: 'link', key, start: w, moved: false };
-    } else if (t.closest('.c-hit')) { sel = new Set(); ctx.select(/** @type {string} */ (/** @type {SVGElement} */ (t.closest('.c-hit')).dataset.el)); invalidate(); return; }
+    } else if (t.closest('.flow-label[data-line]')) {
+      // drag a connector's item label to move it
+      const id = /** @type {string} */ (/** @type {SVGElement} */ (t.closest('.flow-label[data-line]')).dataset.line);
+      const l = diagram()?.layout?.lines?.[id];
+      const c = scene()?.conns.find((x) => x.id === id);
+      drag = { mode: 'label', id, el: c ? c.el.id : id, start: w, base: { x: l?.lx || 0, y: l?.ly || 0 }, moved: false };
+    } else if (t.closest('.c-hit')) {
+      // a click selects the connector; dragging moves the segment under the pointer
+      const hitEl = /** @type {SVGElement} */ (t.closest('.c-hit'));
+      drag = { mode: 'conn', el: /** @type {string} */ (hitEl.dataset.el), line: /** @type {string} */ (hitEl.dataset.line), start: w };
+    }
     else if (t.closest('.part') || t.closest('.frame-tab')) {
       const key = t.closest('.part') ? keyOf('.part') : FRAME;
       if (ev.shiftKey || ev.metaKey || ev.ctrlKey) { const nx = new Set(sel); if (nx.has(key)) nx.delete(key); else nx.add(key); setSel(nx); return; }
@@ -650,7 +673,7 @@ export function createIbdView(ctx) {
       const keys = [...new Set(roots.flatMap(subtree).concat(roots))];
       drag = { mode: 'move', start: w, keys, orig: new Map(keys.map((k) => [k, { ...rectOf(k) }])), moved: false };
     } else drag = { mode: 'lasso', start: w, base: new Set(ev.shiftKey ? sel : []) };
-    stage.setPointerCapture(ev.pointerId);
+    try { stage.setPointerCapture(ev.pointerId); } catch { /* a pointer that already ended */ }
   });
 
   stage.addEventListener('pointermove', (ev) => {
@@ -658,6 +681,20 @@ export function createIbdView(ctx) {
     const w = eventWorld(ev);
     const snap = diagram()?.props.snap !== false && !ev.altKey;
     if (drag.mode === 'pan') { cam.x = drag.cx - (ev.clientX - drag.sx) / cam.k; cam.y = drag.cy - (ev.clientY - drag.sy) / cam.k; invalidate(); }
+    else if (drag.mode === 'conn') {
+      if (Math.hypot(w.x - drag.start.x, w.y - drag.start.y) * cam.k < 4) return;
+      const base = connPoints(drag.line);
+      if (!base) return;
+      drag = { mode: 'segment', id: drag.line, el: drag.el, base, seg: nearestSegment(base, drag.start), start: drag.start };
+      lineDrag = { id: drag.id, pts: moveSegment(base, drag.seg, drag.start, w) };
+      invalidate();
+    } else if (drag.mode === 'segment') { lineDrag = { id: drag.id, pts: moveSegment(drag.base, drag.seg, drag.start, w) }; invalidate(); }
+    else if (drag.mode === 'label') {
+      if (!drag.moved && Math.hypot(w.x - drag.start.x, w.y - drag.start.y) * cam.k < 3) return;
+      drag.moved = true;
+      lineDrag = { id: drag.id, label: { x: drag.base.x + w.x - drag.start.x, y: drag.base.y + w.y - drag.start.y } };
+      invalidate();
+    }
     else if (drag.mode === 'move') {
       let dx = w.x - drag.start.x, dy = w.y - drag.start.y;
       if (!drag.moved && Math.hypot(dx, dy) * cam.k < 3) return;
@@ -733,6 +770,11 @@ export function createIbdView(ctx) {
       const tiny = !lasso || (lasso.w * cam.k < 3 && lasso.h * cam.k < 3);
       lasso = null;
       if (tiny) setSel(new Set()); else setSel(sel);
+    } else if (d.mode === 'conn') { sel = new Set(); ctx.select(d.el); }
+    else if (d.mode === 'segment' || d.mode === 'label') {
+      const ld = lineDrag; lineDrag = null;
+      if (ld && (ld.pts || (d.mode === 'label' && d.moved))) ctx.edit(d.mode === 'segment' ? 'Move a connector' : 'Move a label', (tx) => tx.shape(diagramId, { [d.id]: lineToKeep(diagram()?.layout?.lines?.[d.id], ld) }));
+      sel = new Set(); ctx.select(d.el);
     }
     invalidate();
   };
@@ -768,6 +810,13 @@ export function createIbdView(ctx) {
   // double-click a part or port: its properties
   stage.addEventListener('dblclick', (ev) => {
     const t = /** @type {Element} */ (document.elementFromPoint(ev.clientX, ev.clientY) || ev.target);
+    // double-click a connector or its label: back to automatic
+    const lineEl = /** @type {SVGElement | null} */ (t.closest('.c-hit[data-line], .flow-label[data-line]'));
+    if (lineEl?.dataset.line) {
+      const id = lineEl.dataset.line;
+      if (diagram()?.layout?.lines?.[id] && ctx.edit('Straighten a connector', (tx) => tx.shape(diagramId, { [id]: null }))) toast(`The connector is automatic again. ${formatKeys('Mod+Z')} to undo.`);
+      return;
+    }
     const k = /** @type {HTMLElement | null} */ (t.closest('.port') || t.closest('.part'));
     if (!k?.dataset.key) return;
     const id = k.dataset.key.split(/[/#]/).pop() || '';

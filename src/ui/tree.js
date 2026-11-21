@@ -13,6 +13,7 @@ import { h, icon } from './dom.js';
 import { popupMenu } from './menu.js';
 import { ELEMENTS, LAYERS, kindName, childKinds, isRel, isDiagram } from '../model/metamodel.js';
 import { stereoIcon, stereoNames } from '../custom/stereo.js';
+import { toolIcon } from '../canvas/tools.js';
 import { worst } from '../validate/engine.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
@@ -37,6 +38,8 @@ import { worst } from '../validate/engine.js';
  */
 
 const LAYER_COLOR = Object.fromEntries(LAYERS.map((l) => [l.id, l.color]));
+/** The icon a diagram, table or matrix shows in the browser, so views stand apart from elements. */
+const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
 /** Elements drawn as lines on diagrams: listed in the browser only when asked for. */
 export const LINE_KINDS = new Set(['flow', 'transition', 'connector', 'binding']);
 /** How far the pointer moves before a press becomes a drag. */
@@ -74,7 +77,7 @@ export function createTree(ctx) {
     const isLayer = !!e.layer;
     const stereo = stereoNames(m, e.id);
     const row = h('div', {
-      class: 'ti' + (sel ? ' sel' : '') + (isLayer ? ' ti-layer' : ''),
+      class: 'ti' + (sel ? ' sel' : '') + (isLayer ? ' ti-layer' : '') + (isDiagram(e.kind) ? ' ti-diagram' : ''),
       role: 'treeitem', 'aria-level': String(depth + 1), 'aria-selected': String(sel),
       'aria-expanded': kids.length ? String(open) : undefined,
       tabindex: sel || (!ctx.selected() && isLayer && e.layer === 'r') ? '0' : '-1',
@@ -85,7 +88,9 @@ export function createTree(ctx) {
     h('span', { class: 'twisty' + (kids.length ? '' : ' none'), 'aria-hidden': 'true', 'data-twisty': '' }, kids.length ? icon(open ? 'chevDown' : 'chevRight') : null),
     isLayer
       ? h('span', { class: 'layer-dot', style: { background: LAYER_COLOR[/** @type {string} */ (e.layer)] } })
-      : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, ELEMENTS[e.kind].abbr),
+      : isDiagram(e.kind)
+        ? h('span', { class: 'ti-dicon', title: kindName(e.kind, n), style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, toolIcon(DIAGRAM_ICON[e.kind] || 'block'))
+        : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, ELEMENTS[e.kind].abbr),
     renaming === e.id ? renameInput(e) : h('span', { class: 'ti-name' + (hits.has(e.id) ? ' hit' : '') }, stereoIcon(m, e.id) ? h('span', { class: 'ti-icon', 'aria-hidden': 'true' }, stereoIcon(m, e.id)) : null, e.name),
     (() => {
       // the worst problem on this element

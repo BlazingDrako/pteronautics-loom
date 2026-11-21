@@ -40,6 +40,8 @@ const T = /** @type {Record<string, string>} */ ({
   fragment: '<rect x="3" y="4.5" width="18" height="15" rx="1"/><path d="M3 9 H9 L10.5 7.4 V4.5"/>',
   operand: '<rect x="3" y="4.5" width="18" height="15" rx="1"/><path d="M3 12 H21" stroke-dasharray="2.5 2"/>',
   comment: '<path d="M4.5 4 H15.5 L19.5 8 V20 H4.5 Z M15.5 4 V8 H19.5"/>',
+  table: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5" fill="currentColor" fill-opacity=".12"/><path d="M3.5 9 H20.5 M3.5 14.5 H20.5 M10 4.5 V19.5"/>',
+  matrix: '<rect x="3.5" y="3.5" width="17" height="17" rx="1.5"/><path d="M3.5 9 H20.5 M9 3.5 V20.5"/><circle cx="13" cy="13" r="1.3" fill="currentColor" stroke="none"/><circle cx="17" cy="17" r="1.3" fill="currentColor" stroke="none"/><circle cx="17" cy="13" r="1.3" fill="currentColor" stroke="none"/>',
   // relationships
   generalize: '<path d="M4 20 L14.5 9.5"/><path d="M12 6 L19 5 L18 12 Z" fill="var(--bg-elev, #fff)"/>',
   satisfy: '<path d="M4 20 L18 6" stroke-dasharray="2.6 2.2"/><path d="M12.5 6 H18 V11.5"/>',

@@ -4,7 +4,7 @@
 //
 // Project folders are saved as SysML v2 text (see src/storage/folder.js); this JSON form is
 // the fast local snapshot (IndexedDB) and the single-file .loom.json export.
-import { createModel, ModelError, stereoApplies } from './model.js';
+import { createModel, ModelError, stereoApplies, cleanLine, FILLS } from './model.js';
 import { ELEMENTS, RELATIONSHIPS, isRel, canOwnKind, canRelate, defaultProps, isDiagram } from './metamodel.js';
 import { isId } from './ids.js';
 import { isLayoutKey, keyIds, FRAME } from './paths.js';
@@ -122,7 +122,11 @@ function cleanElement(raw) {
   const layer = ['r', 'f', 'l', 'p'].includes(raw.layer) ? raw.layer : undefined;
   /** @type {Element} */
   const e = layer ? { id: raw.id, kind: raw.kind, name, owner, layer, props } : { id: raw.id, kind: raw.kind, name, owner, props };
-  if (isDiagram(raw.kind)) e.layout = { nodes: cleanLayout(raw.layout?.nodes) };
+  if (isDiagram(raw.kind)) {
+    e.layout = { nodes: cleanLayout(raw.layout?.nodes) };
+    const lines = cleanLines(raw.layout?.lines);
+    if (lines) e.layout.lines = lines;
+  }
   return e;
 }
 
@@ -153,8 +157,22 @@ function cleanLayout(nodes) {
     const x = num(r.x, -1e6, 1e6), y = num(r.y, -1e6, 1e6), w = num(r.w, small ? 8 : 40, 8000), h = num(r.h, small ? 8 : 30, 8000);
     if (x === null || y === null || w === null || h === null) continue;
     out[id] = r.c === 1 ? { x, y, w, h, c: 1 } : { x, y, w, h };
+    if (typeof r.fill === 'string' && FILLS.includes(r.fill)) out[id].fill = r.fill; // a box's color on this diagram
   }
   return out;
+}
+
+/** Lines shaped by hand, by edge id, or undefined when there are none. @param {unknown} lines */
+export function cleanLines(lines) {
+  if (!lines || typeof lines !== 'object') return undefined;
+  /** @type {Record<string, import('./model.js').Line>} */
+  const out = {};
+  for (const [k, l] of Object.entries(/** @type {Record<string, unknown>} */ (lines))) {
+    if (k.length > 200) continue;
+    const c = cleanLine(l);
+    if (c) out[k] = c;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** @param {any} raw @returns {Element} */

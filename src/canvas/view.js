@@ -35,6 +35,7 @@ import { presetsFor, presetProps, matches, currentOptions, newPresetId } from '.
 import { worst } from '../validate/engine.js';
 import { prompt } from '../ui/dialog.js';
 import { createToolPalette, symbolFor } from './tools.js';
+import { shapeRoute, moveSegment, nearestSegment, lineToKeep } from './lines.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -537,6 +538,21 @@ export function createDiagramView(ctx) {
     return g;
   }
 
+  // ---------- lines shaped by hand ----------
+  /** A line being dragged (its bends, or its label's offset), before it is committed. @type {null | { id: string, pts?: { x: number, y: number }[], label?: { x: number, y: number } }} */
+  let lineDrag = null;
+  /** The points a line is drawn through (see lines.js). @param {{ edge: { id: string }, points: { x: number, y: number }[] }} rt */
+  function shapedPoints(rt) {
+    if (lineDrag?.id === rt.edge.id && lineDrag.pts) return lineDrag.pts;
+    return shapeRoute(rt.points, diagram()?.layout?.lines?.[rt.edge.id]);
+  }
+  /** Keep a line's shape (bends and label) as one edit. @param {string} id @param {{ pts?: { x: number, y: number }[], label?: { x: number, y: number } }} next @param {string} label */
+  function commitLine(id, next, label) {
+    ctx.edit(label, (tx) => tx.shape(diagramId, { [id]: lineToKeep(diagram()?.layout?.lines?.[id], next) }));
+  }
+  /** The route of a line, by its edge id. @param {string} id */
+  const routeOf = (id) => routeCache.routes.find((rt) => rt.edge.id === id);
+
   function render() {
     if (!ctx.offscreen) palette.sync(ctx.notation());
     const t0 = performance.now();
@@ -623,12 +639,18 @@ export function createDiagramView(ctx) {
     const routes = routeCache.routes.filter((rt) => visible.has(rt.edge.from) || visible.has(rt.edge.to));
     const selectedEl = ctx.selected();
     const showRoles = (K.labelsOn ? K.labelsOn(d) : d.props.showRoles !== false) && !lod;
-    const eKey = `${geomKey}|${selectedEl}|${lod}|${routes.length}|${routes.length ? routes[0].edge.id + routes[routes.length - 1].edge.id : ''}|${marksStamp}`;
+    const shapes = d.layout?.lines || {};
+    const eKey = `${geomKey}|${selectedEl}|${lod}|${routes.length}|${routes.length ? routes[0].edge.id + routes[routes.length - 1].edge.id : ''}|${marksStamp}|${d.layout?.lines ? JSON.stringify(d.layout.lines) : ''}|${lineDrag ? JSON.stringify(lineDrag) : ''}`;
     const parts = [];
     if (eKey !== edgesKey) for (const rt of routes) {
-      const pts = rt.points, dPath = pathData(pts);
+      const pts = shapedPoints(rt), dPath = pathData(pts);
       const on = rt.edge.element === selectedEl;
-      parts.push(`<path class="e-hit" data-el="${rt.edge.element}" d="${dPath}"/>`);
+      // a label, moved by hand if it was; labels can be dragged, and double-clicking one puts it back
+      const shape = shapes[rt.edge.id];
+      const off = lineDrag?.id === rt.edge.id && lineDrag.label ? lineDrag.label : { x: shape?.lx || 0, y: shape?.ly || 0 };
+      const label = (/** @type {number} */ x, /** @type {number} */ y, /** @type {string} */ anchor, /** @type {string} */ cls, /** @type {string} */ text) =>
+        `<text class="e-label${cls}" data-line="${esc(rt.edge.id)}" x="${x + off.x}" y="${y + off.y}" text-anchor="${anchor}">${text}</text>`;
+      parts.push(`<path class="e-hit" data-el="${rt.edge.element}" data-line="${esc(rt.edge.id)}" d="${dPath}"/>`);
       const runE = marks.edges.get(rt.edge.element);
       parts.push(`<path class="edge ${rt.edge.kind}${rt.edge.cls ? ' ' + rt.edge.cls : ''}${rt.edge.dashed ? ' dashed' : ''}${runE ? ' run-' + runE : ''}${on ? ' sel' : ''}" d="${dPath}"/>`);
       const nTok = marks.tokens.get(rt.edge.element);
@@ -644,7 +666,7 @@ export function createDiagramView(ctx) {
         if (showRoles && rt.edge.label) {
           const end = pts[pts.length - 1], side = rt.toSide;
           const [lx, ly, anchor] = side === 't' ? [end.x + 6, end.y - 6, 'start'] : side === 'b' ? [end.x + 6, end.y + 15, 'start'] : side === 'l' ? [end.x - 6, end.y - 6, 'end'] : [end.x + 6, end.y - 6, 'start'];
-          parts.push(`<text class="e-label" x="${lx}" y="${ly}" text-anchor="${anchor}">${esc(ellipsize(rt.edge.label, 160, FONTS.label))}</text>`);
+          parts.push(label(lx, ly, anchor, '', esc(ellipsize(rt.edge.label, 160, FONTS.label))));
         }
       } else if (rt.edge.kind === 'containment') {
         // ⊕ at the container end
@@ -656,7 +678,7 @@ export function createDiagramView(ctx) {
         if (showRoles && rt.edge.label) {
           const end = pts[pts.length - 1], side = rt.toSide;
           const [lx, ly, anchor] = side === 't' ? [end.x + 6, end.y - 6, 'start'] : side === 'b' ? [end.x + 6, end.y + 15, 'start'] : side === 'l' ? [end.x - 6, end.y - 6, 'end'] : [end.x + 6, end.y - 6, 'start'];
-          parts.push(`<text class="e-label bind" x="${lx}" y="${ly}" text-anchor="${anchor}">${esc(ellipsize(rt.edge.label, 140, FONTS.label))}</text>`);
+          parts.push(label(lx, ly, anchor, ' bind', esc(ellipsize(rt.edge.label, 140, FONTS.label))));
         }
       } else if (rt.edge.kind === 'dependency' || rt.edge.kind === 'flow') {
         const q = pts[pts.length - 1], a = pts[pts.length - 2];
@@ -669,9 +691,7 @@ export function createDiagramView(ctx) {
           const s0 = pts[bi - 1], s1 = pts[bi], mx = (s0.x + s1.x) / 2, my = (s0.y + s1.y) / 2;
           const vertical = s0.x === s1.x;
           const text = esc(ellipsize(rt.edge.label, vertical ? 160 : Math.max(90, bl - 16), FONTS.label));
-          parts.push(vertical
-            ? `<text class="e-label dep" x="${mx + 6}" y="${my + 4}" text-anchor="start">${text}</text>`
-            : `<text class="e-label dep" x="${mx}" y="${my - 6}" text-anchor="middle">${text}</text>`);
+          parts.push(vertical ? label(mx + 6, my + 4, 'start', ' dep', text) : label(mx, my - 6, 'middle', ' dep', text));
         }
       } else {
         const q = pts[pts.length - 1], a = pts[pts.length - 2];
@@ -841,7 +861,13 @@ export function createDiagramView(ctx) {
       const pos = layered(nodes, /** @type {any} */ (edges));
       for (const n of nodes) { const p = pos.get(n.id); if (p) patch[n.id] = { x: p.x, y: p.y, w: n.w, h: layout()[n.id].h }; }
     }
-    commit('Tidy layout', patch);
+    // tidying routes every line afresh, so lines shaped by hand go back to automatic
+    const lines = diagram()?.layout?.lines;
+    ctx.edit('Tidy layout', (tx) => {
+      tx.place(diagramId, patch);
+      K.afterPlace?.(model, tx, diagram(), Object.keys(patch).filter((k) => patch[k]));
+      if (lines) tx.shape(diagramId, Object.fromEntries(Object.keys(lines).map((k) => [k, null])));
+    });
     fit();
   }
 
@@ -853,7 +879,7 @@ export function createDiagramView(ctx) {
     popupMenu(anchor, [...flags.map(([k, label]) => ({
       label, hint: d.props[k] !== false ? 'on' : 'off',
       run: () => ctx.edit(`${d.props[k] !== false ? 'Hide' : 'Show'} ${label.toLowerCase()}`, (tx) => tx.setProps(diagramId, { [k]: d.props[k] === false })),
-    })), ...presetItems(ctx, d)], { title: 'This diagram shows' });
+    })), ...(d.layout?.lines ? [/** @type {const} */ ('sep'), { label: 'Make every line automatic again', run: () => ctx.edit('Straighten every line', (tx) => tx.shape(diagramId, Object.fromEntries(Object.keys(d.layout?.lines || {}).map((k) => [k, null])))) }] : []), ...presetItems(ctx, d)], { title: 'This diagram shows' });
   }
 
   function removeFromView() {
@@ -905,7 +931,9 @@ export function createDiagramView(ctx) {
    *  | { mode: 'resize', id: string, handle: string, start: { x: number, y: number }, orig: Rect }
    *  | { mode: 'lasso', start: { x: number, y: number }, additive: boolean, base: Set<string> }
    *  | { mode: 'pan', sx: number, sy: number, cx: number, cy: number }
-   *  | { mode: 'click-edge', el: string }
+   *  | { mode: 'click-edge', el: string, line?: string, start?: { x: number, y: number } }
+   *  | { mode: 'segment', id: string, base: { x: number, y: number }[], seg: number, start: { x: number, y: number }, el: string }
+   *  | { mode: 'label', id: string, start: { x: number, y: number }, base: { x: number, y: number }, moved: boolean }
    *  | { mode: 'link' }}
    */
   let drag = null;
@@ -959,8 +987,14 @@ export function createDiagramView(ctx) {
       const moving = new Set(sel);
       if (K.dragsWith) for (const x of sel) for (const y of K.dragsWith(model, diagram(), x, (/** @type {string} */ q) => rectOf(q), shownIds())) moving.add(y);
       drag = { mode: 'move', start: w, orig: new Map([...moving].map((x) => [x, rectOf(x)])), moved: false };
+    } else if (t.closest('.e-label[data-line]')) {
+      // drag a line's label to move it
+      const id = /** @type {string} */ (/** @type {SVGElement} */ (t.closest('.e-label[data-line]')).dataset.line);
+      const l = diagram()?.layout?.lines?.[id];
+      drag = { mode: 'label', id, start: w, base: { x: l?.lx || 0, y: l?.ly || 0 }, moved: false };
     } else if (t.closest('.e-hit')) {
-      drag = { mode: 'click-edge', el: /** @type {string} */ (/** @type {SVGElement} */ (t.closest('.e-hit')).dataset.el) };
+      const hitEl = /** @type {SVGElement} */ (t.closest('.e-hit'));
+      drag = { mode: 'click-edge', el: /** @type {string} */ (hitEl.dataset.el), line: hitEl.dataset.line, start: w };
     } else {
       drag = { mode: 'lasso', start: w, additive: ev.shiftKey, base: new Set(ev.shiftKey ? sel : []) };
     }
@@ -1020,6 +1054,23 @@ export function createDiagramView(ctx) {
       if (snap) nh = Math.round((o.y + nh) / GRID) * GRID - o.y;
       override.set(drag.id, { x: o.x, y: o.y, w: nw, h: Math.max(minH(drag.id, nw), nh) });
       invalidate();
+    } else if (drag.mode === 'click-edge' && drag.line && drag.start) {
+      // a press on a line that starts to move becomes moving one of its segments
+      if (Math.hypot(w.x - drag.start.x, w.y - drag.start.y) * cam.k < 4) return;
+      const rt = routeOf(drag.line);
+      if (!rt) return;
+      const base = shapedPoints(rt).map((p) => ({ ...p }));
+      drag = { mode: 'segment', id: drag.line, base, seg: nearestSegment(base, drag.start), start: drag.start, el: drag.el };
+      lineDrag = { id: drag.id, pts: moveSegment(base, drag.seg, drag.start, w) };
+      invalidate();
+    } else if (drag.mode === 'segment') {
+      lineDrag = { id: drag.id, pts: moveSegment(drag.base, drag.seg, drag.start, w) };
+      invalidate();
+    } else if (drag.mode === 'label') {
+      if (!drag.moved && Math.hypot(w.x - drag.start.x, w.y - drag.start.y) * cam.k < 3) return;
+      drag.moved = true;
+      lineDrag = { id: drag.id, label: { x: drag.base.x + w.x - drag.start.x, y: drag.base.y + w.y - drag.start.y } };
+      invalidate();
     } else if (drag.mode === 'link' && linking) {
       trackLink(ev, w);
     } else if (drag.mode === 'lasso') {
@@ -1058,6 +1109,15 @@ export function createDiagramView(ctx) {
     } else if (d.mode === 'click-edge') {
       setSel(new Set(), false);
       ctx.select(d.el);
+    } else if (d.mode === 'segment') {
+      const ld = lineDrag; lineDrag = null;
+      if (ld?.pts) commitLine(d.id, { pts: ld.pts }, 'Move a line');
+      setSel(new Set(), false);
+      ctx.select(d.el);
+    } else if (d.mode === 'label') {
+      const ld = lineDrag; lineDrag = null;
+      if (d.moved && ld?.label) commitLine(d.id, { label: ld.label }, 'Move a label');
+      else { const rt = routeOf(d.id); if (rt) { setSel(new Set(), false); ctx.select(rt.edge.element); } }
     } else if (d.mode === 'link' && linking) {
       const l = linking; linking = null; tip.hidden = true;
       // a relationship tool, clicked on its source: wait for the target's click
@@ -1133,7 +1193,15 @@ export function createDiagramView(ctx) {
   stage.addEventListener('dblclick', (ev) => {
     if (tool) return;
     // the stage holds the pointer while clicking, so look at what is under it
-    const n = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.node');
+    const under = document.elementFromPoint(ev.clientX, ev.clientY);
+    const lineEl = /** @type {SVGElement | null | undefined} */ (under?.closest('.e-hit[data-line], .e-label[data-line]'));
+    if (lineEl?.dataset.line) {
+      // double-click a line or its label: back to automatic
+      const id = lineEl.dataset.line;
+      if (diagram()?.layout?.lines?.[id] && ctx.edit('Straighten a line', (tx) => tx.shape(diagramId, { [id]: null }))) toast(`The line is automatic again. ${formatKeys('Mod+Z')} to undo.`);
+      return;
+    }
+    const n = under?.closest('.node');
     if (!n) return;
     const id = /** @type {string} */ (/** @type {HTMLElement} */ (n).dataset.id);
     const el = model.get(id.split('/').pop() || id);

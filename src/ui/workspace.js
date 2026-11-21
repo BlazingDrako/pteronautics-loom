@@ -573,7 +573,8 @@ export function mountWorkspace(root, ctx) {
     h('div', { class: 'sidebar-foot' },
       h('a', { class: 'nav-item', href: '#/' }, icon('home'), h('span', { class: 'nav-label' }, 'All projects')),
       h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('prefs.open') }, icon('palette'), h('span', { class: 'nav-label' }, 'Preferences')),
-      h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('help.shortcuts') }, icon('keyboard'), h('span', { class: 'nav-label' }, 'Shortcuts'))));
+      h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('help.shortcuts') }, icon('keyboard'), h('span', { class: 'nav-label' }, 'Shortcuts')),
+      h('div', { class: 'sidebar-credit' }, 'Made by Andrew Aguiar')));
 
   // drag the sidebar's edge to resize it; double-click the edge for the default width
   const resizer = h('div', { class: 'side-resizer', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the sidebar', tabindex: '0', title: 'Drag to resize · double-click to reset' });

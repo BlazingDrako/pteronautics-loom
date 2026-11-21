@@ -168,9 +168,13 @@ export function buildSnapshot(base, inputs, o = {}) {
       /** @type {Element} */
       const e = { id: x.id, kind: x.kind, name: x.name, owner: ownerId, props: propsOf(x.n, x.kind, prev?.props) };
       if (isDiagram(x.kind)) {
-        const saved = o.layouts?.[x.id], had = prev?.layout?.nodes;
-        const pick = (o.preferLayouts && saved) || had || saved || {};
-        e.layout = { nodes: JSON.parse(JSON.stringify(pick)) };
+        // a saved layout (from .loom/layout.json) holds the boxes and, under "~lines", the lines shaped by hand
+        const saved = o.layouts?.[x.id];
+        const fromSaved = () => { const { '~lines': lines, ...nodes } = /** @type {Record<string, any>} */ (saved); return { nodes, lines }; };
+        const had = prev?.layout;
+        const pick = o.preferLayouts && saved ? fromSaved() : had ? { nodes: had.nodes, lines: had.lines } : saved ? fromSaved() : { nodes: {}, lines: undefined };
+        e.layout = { nodes: JSON.parse(JSON.stringify(pick.nodes || {})) };
+        if (pick.lines && typeof pick.lines === 'object') e.layout.lines = JSON.parse(JSON.stringify(pick.lines));
       }
       els.set(e.id, e);
       /** @type {string[]} */ (kids.get(ownerId)).push(e.id);
@@ -371,6 +375,7 @@ export function applySnapshot(m, snap, label) {
       if (!e.owner || m.get(e.id)) continue;
       tx.create(e.kind, { owner: e.owner, name: e.name, props: plain(e), id: e.id });
       if (e.layout && Object.keys(e.layout.nodes).length) tx.place(e.id, e.layout.nodes);
+      if (e.layout?.lines) tx.shape(e.id, e.layout.lines);
       stats.created++;
     }
     // 2. owners and order, top down
@@ -398,6 +403,12 @@ export function applySnapshot(m, snap, label) {
         const patch = { ...e.layout.nodes };
         for (const k of Object.keys(cur.layout.nodes)) if (!(k in patch)) patch[k] = null;
         tx.place(e.id, patch);
+      }
+      if (e.layout && cur.layout && JSON.stringify(cur.layout.lines || {}) !== JSON.stringify(e.layout.lines || {})) {
+        /** @type {Record<string, any>} */
+        const lp = { ...(e.layout.lines || {}) };
+        for (const k of Object.keys(cur.layout.lines || {})) if (!(k in lp)) lp[k] = null;
+        tx.shape(e.id, lp);
       }
     }
     // 5. new relationships

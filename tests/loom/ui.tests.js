@@ -5,6 +5,13 @@ import { createProjectStore, memoryBackend } from '../../src/storage/projects.js
 import { createSettings, sanitize } from '../../src/settings.js';
 import { createCommands } from '../../src/commands.js';
 import { mountWorkspace } from '../../src/ui/workspace.js';
+import { createModel } from '../../src/model/model.js';
+import { buildKestrel } from '../../src/model/sample.js';
+import { snapshot, restore } from '../../src/model/serialize.js';
+import { projectFiles, modelFromFiles } from '../../src/storage/folder.js';
+import { printModel } from '../../src/text/printer.js';
+import { parseLayer, buildSnapshot, applySnapshot } from '../../src/text/build.js';
+import { shapeRoute, moveSegment } from '../../src/canvas/lines.js';
 
 const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 /** @param {Element | null | undefined} el */
@@ -19,6 +26,34 @@ export async function uiTests(log) {
   log('Layout settings start sensible: sidebar shown at 260 px, comfortable, palettes as icons', d.sidebar === true && d.sidebarWidth === 260 && d.density === 'comfortable' && d.paletteLabels === false && d.props === null);
   const bad = sanitize({ sidebarWidth: 5000, density: 'tiny', sidebar: 'yes', props: { x: 10, y: 10, w: 50, h: 99999 } });
   log('Layout settings are kept within limits', bad.sidebarWidth === 560 && bad.density === 'comfortable' && bad.sidebar === true && bad.props?.w === 300 && bad.props?.h === 2000);
+
+  // ---------- lines shaped by hand: kept with the diagram ----------
+  const lk = createModel(); buildKestrel(lk);
+  const ldia = /** @type {any} */ (lk.byKind('bdd')[0]);
+  lk.transact('Shape', (tx) => tx.shape(ldia.id, { e1: { pts: [[100, 200], [300, 200]], lx: 12, ly: -8 } }));
+  log('A diagram keeps a line\'s bends and its label\'s offset', JSON.stringify(lk.get(ldia.id)?.layout?.lines?.e1) === '{"pts":[[100,200],[300,200]],"lx":12,"ly":-8}');
+  lk.undo();
+  log('Shaping a line is one undoable step', !lk.get(ldia.id)?.layout?.lines);
+  lk.redo();
+  const lback = restore(JSON.parse(JSON.stringify(snapshot(lk))));
+  log('Shaped lines are saved and opened again', JSON.stringify(lback.get(ldia.id)?.layout?.lines) === JSON.stringify(lk.get(ldia.id)?.layout?.lines));
+  const lfiles = projectFiles(lk, { name: 'K', description: '' });
+  log('Project folders keep them, in .loom/layout.json', /"~lines"/.test(lfiles['.loom/layout.json']) && JSON.stringify(modelFromFiles(lfiles).model.get(ldia.id)?.layout?.lines) === JSON.stringify(lk.get(ldia.id)?.layout?.lines));
+  const ltext = applySnapshot(lk, buildSnapshot(lk, lk.layers().map((l) => ({ layerId: l.id, node: parseLayer(printModel(lk).find((f) => f.id === l.id)?.text || '') }))), 'Apply text');
+  log('Applying SysML text leaves them alone', !!ltext && !!lk.get(ldia.id)?.layout?.lines?.e1);
+  lk.transact('Unshape', (tx) => tx.shape(ldia.id, { e1: null }));
+  log('A line can go back to automatic', !lk.get(ldia.id)?.layout?.lines);
+  lk.transact('Fill', (tx) => tx.place(ldia.id, { [Object.keys(ldia.layout.nodes)[0]]: { ...Object.values(ldia.layout.nodes)[0], fill: 'teal' } }));
+  log('A box\'s color on a diagram survives saving and opening (it used to be dropped)', Object.values(restore(JSON.parse(JSON.stringify(snapshot(lk)))).get(ldia.id)?.layout?.nodes || {}).some((r) => /** @type {any} */ (r).fill === 'teal'));
+  // the geometry: ends stay on their boxes and the line stays square
+  const route = [{ x: 0, y: 0 }, { x: 0, y: 50 }, { x: 200, y: 50 }, { x: 200, y: 100 }];
+  const moved = moveSegment(route, 1, { x: 100, y: 50 }, { x: 100, y: 80 });
+  const square = (/** @type {{ x: number, y: number }[]} */ pts) => pts.every((p, i) => !i || p.x === pts[i - 1].x || p.y === pts[i - 1].y);
+  log('Dragging a segment moves it sideways and keeps the line square, its ends where they were', moved.some((p) => p.y === 80) && square(moved) && moved[0].x === 0 && moved[0].y === 0 && moved[moved.length - 1].y === 100);
+  const firstSeg = moveSegment([{ x: 0, y: 0 }, { x: 100, y: 0 }], 0, { x: 50, y: 0 }, { x: 50, y: 40 });
+  log('Moving a straight line adds a short stub at each end', firstSeg.length === 4 && square(firstSeg) && firstSeg[1].y === 40 && firstSeg[0].y === 0 && firstSeg[3].y === 0);
+  const reshaped = shapeRoute([{ x: 0, y: 0 }, { x: 0, y: 30 }, { x: 90, y: 30 }], { pts: [[40, 60], [40, 90]] });
+  log('Bends kept by hand join the ends square, wherever the boxes have moved', square(reshaped) && reshaped[0].x === 0 && reshaped[reshaped.length - 1].x === 90);
 
   // ---------- a workspace on screen (events need real geometry, so the app's styles too) ----------
   const css = document.createElement('link');
@@ -204,6 +239,16 @@ export async function uiTests(log) {
       await wait();
     }
     log('A relationship tool relates the box clicked first to the one clicked next', m.relsFrom(/** @type {string} */ (newBlock?.id)).some((r) => r.kind === 'generalize' && r.target === prop.id));
+    // drag a line's segment: it is kept with the diagram
+    await wait(60);
+    const lineHit = /** @type {SVGPathElement | null} */ ([...stage.querySelectorAll('.e-hit[data-line]')].find((x) => /** @type {SVGPathElement} */ (x).getTotalLength() > 60) || null);
+    if (lineHit) {
+      let at = null;
+      for (let t = 0.1; t < 1 && !at; t += 0.05) { const p = lineHit.getPointAtLength(lineHit.getTotalLength() * t); const q = new DOMPoint(p.x, p.y).matrixTransform(/** @type {DOMMatrix} */ (lineHit.getScreenCTM())); if (/** @type {any} */ (document.elementFromPoint(q.x, q.y))?.dataset?.line === lineHit.dataset.line) at = q; }
+      if (at) { ptr(lineHit, 'pointerdown', at.x, at.y); ptr(stage, 'pointermove', at.x + 30, at.y + 30); ptr(stage, 'pointerup', at.x + 30, at.y + 30); }
+      await wait();
+    }
+    log('Dragging a line on a diagram reshapes it, kept with the diagram', !!lineHit && !!m.get(diag.id)?.layout?.lines?.[/** @type {string} */ (lineHit?.dataset.line)]);
     // an activity's palette has every control node and both flows
     ws.openDiagram(find('Survey flight', 'act').id);
     await wait(80);

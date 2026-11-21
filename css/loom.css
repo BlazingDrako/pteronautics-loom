@@ -156,6 +156,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .nav-item.planned:hover { background: none; color: var(--text-2); }
 .tree-empty { font-size: 11.5px; color: var(--text-3); padding: 2px 10px 4px; }
 .sidebar-foot { margin-top: auto; padding-top: 12px; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); }
+.sidebar-credit { font-size: 11px; color: var(--text-3); padding: 8px 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .topbar { grid-area: top; display: flex; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg); min-width: 0; }
 .crumbs { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); flex-wrap: nowrap; min-width: 0; flex: 0 1 auto; white-space: nowrap; }
@@ -368,6 +369,10 @@ select.field { padding-right: 6px; }
 .layer-dot { width: 8px; height: 8px; border-radius: 3px; flex: none; }
 .kbadge { flex: none; font-family: var(--mono); font-size: 9.5px; font-weight: 600; padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, currentColor 13%, transparent); letter-spacing: .02em; }
 .ti-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* diagrams, tables and matrices: an icon chip in the layer's color instead of a kind badge */
+.ti-dicon { flex: none; width: 24px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center; background: color-mix(in srgb, currentColor 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent); }
+.ti-dicon svg { width: 14px; height: 14px; }
+.ti-diagram .ti-name { color: var(--text); }
 .ti-count { font-size: 10.5px; color: var(--text-3); flex: none; }
 .ti-add { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: var(--text-3); cursor: pointer; opacity: 0; }
 .ti:hover .ti-add, .ti.sel .ti-add, .ti-layer .ti-add { opacity: 1; }
@@ -501,12 +506,14 @@ body.tree-dragging, body.tree-dragging * { cursor: grabbing !important; user-sel
 .node .h-e { cursor: ew-resize; } .node .h-s { cursor: ns-resize; } .node .h-se { cursor: nwse-resize; }
 .edge { fill: none; stroke: var(--text-2); stroke-width: 1.4; pointer-events: none; }
 .edge.sel { stroke: var(--accent); stroke-width: 2.2; }
-.e-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }
+.e-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: move; pointer-events: stroke; }
 .e-hit:hover + .edge { stroke: var(--accent); }
 .diamond { fill: var(--text-2); stroke: var(--text-2); stroke-width: 1; pointer-events: none; }
 .triangle { fill: var(--bg-elev); stroke: var(--text-2); stroke-width: 1.4; pointer-events: none; }
 .diamond.sel { fill: var(--accent); stroke: var(--accent); } .triangle.sel { stroke: var(--accent); }
 .e-label { font: 400 10.5px var(--mono); fill: var(--text-2); paint-order: stroke; stroke: var(--stage); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.e-label[data-line] { pointer-events: visiblePainted; cursor: move; }
+.e-label[data-line]:hover { fill: var(--accent); }
 .guide { stroke: var(--hl); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .lasso { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
 @media (max-width: 900px) { .dtool .btn span, .dtool .btn { font-size: 11.5px; } .dstage { min-height: 420px; } }
@@ -555,11 +562,13 @@ body.tree-dragging, body.tree-dragging * { cursor: grabbing !important; user-sel
 
 .ibd .conn { fill: none; stroke: var(--text-2); stroke-width: 1.5; pointer-events: none; }
 .ibd .conn.sel { stroke: var(--accent); stroke-width: 2.4; }
-.ibd .c-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; }
+.ibd .c-hit { fill: none; stroke: transparent; stroke-width: 12; cursor: move; pointer-events: stroke; }
 .ibd .c-hit:hover + .conn { stroke: var(--accent); }
 .ibd .flow-arrow { fill: var(--hl); pointer-events: none; }
 .ibd .flow-arrow.sel { fill: var(--accent); }
 .ibd .flow-label { font: 500 10.5px var(--mono); fill: var(--hl); paint-order: stroke; stroke: var(--stage); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.ibd .flow-label[data-line] { pointer-events: visiblePainted; cursor: move; }
+.ibd .flow-label[data-line]:hover { fill: var(--accent); }
 .ibd .rubber { fill: none; stroke: var(--hl); stroke-width: 1.8; stroke-dasharray: 5 4; pointer-events: none; vector-effect: non-scaling-stroke; }
 .ibd .rubber.ok { stroke: var(--good); }
 .ctip { position: absolute; z-index: 4; max-width: 320px; padding: 6px 10px; border-radius: 8px; background: var(--bg-elev); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg); font-size: 12px; color: var(--text); pointer-events: none; overflow-wrap: anywhere; }

@@ -65,7 +65,8 @@ export function projectFiles(m, meta) {
   for (const [id, key] of keys) ids[key] = id;
   /** @type {Record<string, any>} */
   const layouts = {};
-  for (const e of m.all()) if (isDiagram(e.kind) && e.layout && Object.keys(e.layout.nodes).length) layouts[e.id] = e.layout.nodes;
+  // each diagram's boxes by key, and its hand-shaped lines (if any) under "~lines"
+  for (const e of m.all()) if (isDiagram(e.kind) && e.layout && (Object.keys(e.layout.nodes).length || e.layout.lines)) layouts[e.id] = e.layout.lines ? { ...e.layout.nodes, '~lines': e.layout.lines } : e.layout.nodes;
   files[PROJECT_FILE] = stableJson({
     format: FOLDER_FORMAT, version: FOLDER_VERSION, savedBy: `Pteronautics Loom ${VERSION}`,
     name: meta.name, description: meta.description || '', root: m.root().id,
