@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pteronautics Loom · a sample diagram</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="css/loom.css">
+<style>
+  /* a sample model's view on its own, for other pages to show in a frame (the Pteronautics site) */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--stage); }
+  #embed { height: 100%; display: flex; min-height: 0; }
+  #embed > * { flex: 1; min-width: 0; min-height: 0; }
+  #embed .dtool, #embed .tpal, #embed .tool-chip, #embed .vhead-actions { display: none !important; }
+  #embed .dstage { min-height: 0; }
+  #embed.scroll { overflow-y: auto; overflow-x: hidden; display: block; }
+  /* on touch screens a finger scrolls the page around the frame instead of panning the diagram */
+  @media (pointer: coarse) { #embed .dstage, #embed .sdstage { touch-action: pan-x pan-y; } }
+</style>
+</head>
+<body>
+<div id="embed" role="img" aria-label="A Loom diagram"></div>
+<script type="module" src="src/embed.js"></script>
+</body>
+</html>
