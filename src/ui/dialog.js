@@ -5,7 +5,7 @@ import { h } from './dom.js';
 /**
  * Open a modal. `build` returns the body and a function that produces the result.
  * @template T
- * @param {{ title: string, ok?: string, danger?: boolean, build: (close: (v: T | null) => void) => { body: HTMLElement, value: () => T | null, focus?: HTMLElement } }} o
+ * @param {{ title: string, ok?: string, danger?: boolean, wide?: boolean, noCancel?: boolean, build: (close: (v: T | null) => void) => { body: HTMLElement, value: () => T | null, focus?: HTMLElement } }} o
  * @returns {Promise<T | null>} null when cancelled
  */
 export function modal(o) {
@@ -14,10 +14,10 @@ export function modal(o) {
     const done = (/** @type {T | null} */ v) => { back.remove(); returnFocus?.focus?.(); resolve(v); };
     const parts = o.build(done);
     const okBtn = h('button', { class: 'btn ' + (o.danger ? 'danger' : 'primary'), type: 'submit' }, o.ok || 'OK');
-    const form = h('form', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
+    const form = h('form', { class: 'dialog' + (o.wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
       h('h2', { id: 'dlg-title' }, o.title),
       parts.body,
-      h('div', { class: 'dialog-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => done(null) }, 'Cancel'), okBtn));
+      h('div', { class: 'dialog-actions' }, o.noCancel ? null : h('button', { class: 'btn', type: 'button', onclick: () => done(null) }, 'Cancel'), okBtn));
     form.addEventListener('submit', (e) => { e.preventDefault(); const v = parts.value(); if (v !== null) done(v); });
     form.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); done(null); }

@@ -105,6 +105,8 @@ export function printPackage(m, pkgId) {
       }
       case 'state': case 'region': case 'interaction': case 'fragment': case 'operand': case 'actor': return `${e.kind} ${q}`;
       case 'useCase': return `use case ${q}`;
+      case 'profile': return `library package ${q}`;
+      case 'stereotype': return `metadata def ${q}${sp}`;
       case 'lifeline': return `lifeline ${q}${p.represents ? ` : ${ref(p.represents, e, 'represents')}` : ''}`;
       case 'message': return `message ${q} from ${ref(p.from, e, 'from')} to ${ref(p.to, e, 'to')}`;
       default: if (isDiagram(e.kind)) return `view ${q}`;
@@ -120,7 +122,7 @@ export function printPackage(m, pkgId) {
     if (isDiagram(e.kind)) out.push(['kind', e.kind]);
     const defs = defaultProps(e.kind), skip = IN_DECL[e.kind] || [];
     for (const [k, spec] of Object.entries(ELEMENTS[e.kind].props)) {
-      if (skip.includes(k) || spec.type === 'ref' || spec.type === 'end') continue;
+      if (skip.includes(k) || spec.type === 'ref' || spec.type === 'end' || spec.type === 'stereo') continue;
       if (k === 'doc' && e.kind !== 'requirement') continue;
       if (e.kind === 'port' && k === 'conjugated' && e.props.type) continue;
       const v = e.props[k];
@@ -130,10 +132,25 @@ export function printPackage(m, pkgId) {
     return out;
   }
 
+  /** Applied stereotypes as metadata usages: @Critical; or @Critical { dal = "B"; }. @param {Element} e @returns {string[]} */
+  function usages(e) {
+    const list = /** @type {import('../model/metamodel.js').Applied[] | null} */ (e.props.applied);
+    if (!Array.isArray(list)) return [];
+    return list.map((a) => {
+      const st = m.get(a.s);
+      const r = refText(t, a.s, e.id, ['stereotype']);
+      const tags = Object.entries(a.tags || {}).map(([id, v]) => [m.get(id), v]).filter(([x]) => x)
+        .sort((x, y) => m.children(a.s).indexOf(/** @type {any} */ (x[0])) - m.children(a.s).indexOf(/** @type {any} */ (y[0])))
+        .map(([x, v]) => `${quoteName(/** @type {any} */ (x).name)} = ${isNumber(String(v)) ? v : quoteString(String(v))};`);
+      return st && tags.length ? `@${r} { ${tags.join(' ')} }` : `@${r};`;
+    });
+  }
+
   /** Will this element take more than one line? (The same test emit() uses.) @param {Element} e */
   function multiLine(e) {
     if (e.kind === 'comment') return false;
     if (e.kind === 'requirement' ? e.props.text : e.props.doc) return true;
+    if (usages(e).length) return true;
     return meta(e).length > 0 || m.children(e.id).length > 0 || m.relsFrom(e.id).some((r) => r.kind !== 'generalize' && REL_WORDS[r.kind]);
   }
 
@@ -148,6 +165,7 @@ export function printPackage(m, pkgId) {
     const inner = pad + INDENT;
     const doc = e.kind === 'requirement' ? e.props.text : e.props.doc;
     if (doc) body.push(...`doc ${docBody(doc)}`.split('\n').map((l, i) => (i ? `${inner}${l}` : inner + l)));
+    for (const u of usages(e)) body.push(inner + u);
     const mt = meta(e);
     if (mt.length) {
       const one = `@Loom { ${mt.map(([k, v]) => `${k} = ${typeof v === 'boolean' ? v : quoteString(String(v))};`).join(' ')} }`;

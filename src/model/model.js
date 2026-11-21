@@ -3,7 +3,7 @@
 //
 // Every edit is broken into primitive operations (add, delete, set, move). Applying one
 // returns its inverse, so a transaction's inverse is its inverses in reverse order.
-import { ELEMENTS, RELATIONSHIPS, LAYERS, isRel, isKind, canOwnKind, canRelate, defaultProps, kindName, isDiagram, DIAGRAM_KINDS } from './metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, LAYERS, isRel, isKind, canOwnKind, canRelate, defaultProps, kindName, isDiagram, DIAGRAM_KINDS, canHaveStereo } from './metamodel.js';
 import { newId } from './ids.js';
 import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
 
@@ -27,6 +27,15 @@ import { FRAME, isLayoutKey, keyIds, parseKey } from './paths.js';
  */
 
 export class ModelError extends Error {}
+
+/** Does a list of applied stereotypes use `id` (as the stereotype or one of its tags)? @param {any} list @param {string} id */
+const usesStereo = (list, id) => Array.isArray(list) && list.some((a) => a.s === id || (a.tags && id in a.tags));
+/** The kinds a stereotype applies to (empty: any kind that can have stereotypes). @param {Element} st @returns {string[]} */
+export const stereoKinds = (st) => String(st.props.extends || '').split(',').map((x) => x.trim()).filter((x) => x in ELEMENTS);
+/** Does a stereotype apply to elements of `kind`? @param {Element} st @param {string} kind */
+export const stereoApplies = (st, kind) => canHaveStereo(kind) && (!stereoKinds(st).length || stereoKinds(st).includes(kind));
+/** "blocks and parts", for messages. @param {Element} st */
+export const appliesText = (st) => { const k = stereoKinds(st); return k.length ? k.map((x) => kindName(x, 'sysml').toLowerCase()).join(', ') : 'any element'; };
 /** Colors a box can be filled with on a diagram. */
 export const FILLS = ['blue', 'teal', 'green', 'amber', 'coral', 'pink', 'violet', 'slate'];
 
@@ -268,10 +277,12 @@ export function createModel(opts = {}) {
       if (!end.path.length && !end.port) return 'An end must name a part or a port';
       return null;
     },
-    /** Elements that refer to `id` through a ref property. @param {string} id */
+    /** Elements that refer to `id` through a ref property, or apply it (a stereotype or one of its tags). @param {string} id */
     referrers(id) {
-      return [...els.values()].filter((e) => Object.entries(ELEMENTS[e.kind]?.props || {}).some(([k, p]) => p.type === 'ref' && e.props[k] === id));
+      return [...els.values()].filter((e) => Object.entries(ELEMENTS[e.kind]?.props || {}).some(([k, p]) => (p.type === 'ref' && e.props[k] === id) || (p.type === 'stereo' && usesStereo(e.props[k], id))));
     },
+    /** Elements a stereotype is applied to. @param {string} id @returns {Element[]} */
+    appliedTo(id) { return [...els.values()].filter((e) => Array.isArray(e.props.applied) && e.props.applied.some((/** @type {any} */ a) => a.s === id)); },
   };
 
   // ---------- transactions ----------
@@ -378,8 +389,19 @@ export function createModel(opts = {}) {
         if (set.has(ref.id)) continue;
         /** @type {Record<string, any>} */
         const clear = {};
-        for (const [k, p] of Object.entries(ELEMENTS[ref.kind].props)) if (p.type === 'ref' && ref.props[k] === d) clear[k] = null;
-        run({ t: 'set', id: ref.id, props: clear });
+        for (const [k, p] of Object.entries(ELEMENTS[ref.kind].props)) {
+          if (p.type === 'ref' && ref.props[k] === d) clear[k] = null;
+          // a deleted stereotype comes off what it was applied to; a deleted tag loses its values
+          if (p.type === 'stereo' && usesStereo(ref.props[k], d)) {
+            const left = /** @type {import('./metamodel.js').Applied[]} */ (ref.props[k]).filter((a) => a.s !== d).map((a) => {
+              if (!a.tags || !(d in a.tags)) return a;
+              const tags = { ...a.tags }; delete tags[d];
+              return Object.keys(tags).length ? { s: a.s, tags } : { s: a.s };
+            });
+            clear[k] = left.length ? left : null;
+          }
+        }
+        if (Object.keys(clear).length) run({ t: 'set', id: ref.id, props: clear });
       }
       // take doomed elements off every diagram that survives
       for (const dk of DIAGRAM_KINDS) for (const dg of api.byKind(dk)) {
@@ -446,9 +468,35 @@ export function createModel(opts = {}) {
         if (bad) throw new ModelError(bad);
         continue;
       }
+      if (p && p.type === 'stereo' && v !== null) { checkApplied(kind, v); continue; }
       if (!p || p.type !== 'ref' || v === null) continue;
       const target = els.get(v);
       if (!target || !p.kinds.includes(target.kind)) throw new ModelError(`${p.label} must be a ${p.kinds.map((x) => kindName(x, 'sysml')).join(' or ')}`);
+    }
+  }
+
+  /**
+   * Check a list of applied stereotypes: each a stereotype that applies to this kind, once,
+   * with tagged values only for its own tags.
+   * @param {string} kind @param {any} v
+   */
+  function checkApplied(kind, v) {
+    if (!Array.isArray(v)) throw new ModelError('Stereotypes must be a list');
+    const seen = new Set();
+    for (const a of v) {
+      const st = a && typeof a === 'object' ? els.get(a.s) : undefined;
+      if (!st || st.kind !== 'stereotype') throw new ModelError('That is not a stereotype');
+      if (seen.has(st.id)) throw new ModelError(`«${st.name}» is already applied`);
+      seen.add(st.id);
+      if (!stereoApplies(st, kind)) throw new ModelError(`«${st.name}» cannot be applied to a ${kindName(kind, 'sysml').toLowerCase()}: it applies to ${appliesText(st)}`);
+      if (a.tags !== undefined) {
+        if (!a.tags || typeof a.tags !== 'object') throw new ModelError('Tagged values must be a set of values');
+        for (const [tag, val] of Object.entries(a.tags)) {
+          const t = els.get(tag);
+          if (!t || t.kind !== 'attribute' || t.owner !== st.id) throw new ModelError(`«${st.name}» has no such tag`);
+          if (typeof val !== 'string') throw new ModelError(`The value of ${t.name} must be text`);
+        }
+      }
     }
   }
 

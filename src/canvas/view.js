@@ -30,6 +30,10 @@ import { layered } from './layout.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { ELEMENTS, RELATIONSHIPS, kindName } from '../model/metamodel.js';
 import { FILLS } from '../model/model.js';
+import { decorate } from '../custom/stereo.js';
+import { presetsFor, presetProps, matches, currentOptions, newPresetId } from '../custom/presets.js';
+import { worst } from '../validate/engine.js';
+import { prompt } from '../ui/dialog.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Rect} Rect */
@@ -42,8 +46,38 @@ import { FILLS } from '../model/model.js';
  *   selected: () => string | null,
  *   select: (id: string | null) => void,
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
+ *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
+ *   showProblems?: (id: string) => void,
+ *   settings?: import('../settings.js').SettingsStore,
  * }} ViewCtx
  */
+
+/**
+ * The View menu's preset items: apply one, save the current options as one, make one the default.
+ * @param {ViewCtx} ctx @param {import('../model/model.js').Element} d @returns {import('../ui/menu.js').MenuItem[]}
+ */
+export function presetItems(ctx, d) {
+  const st = ctx.settings;
+  if (!st) return [];
+  const list = presetsFor(d.kind, st.get().presets);
+  if (!list.length) return [];
+  const def = st.get().defaultPresets[d.kind];
+  return [
+    'sep',
+    ...list.map((p) => ({
+      label: `Preset: ${p.name}${p.id === def ? ' (default)' : ''}`, hint: matches(d, p) ? '✓' : '',
+      run: () => ctx.edit(`Apply the ${p.name} preset`, (tx) => tx.setProps(d.id, presetProps(d.kind, p))),
+    })),
+    {
+      label: 'Save these options as a preset…', hint: '+',
+      run: async () => {
+        const name = await prompt({ title: 'Save view preset', label: 'Name', value: '', ok: 'Save', hint: 'For every diagram of this kind, in every project. Find it in this View menu.' });
+        if (!name) return;
+        st.update((s) => { s.presets.push({ id: newPresetId(), name, kind: d.kind, props: currentOptions(d) }); });
+      },
+    },
+  ];
+}
 
 const GRID = 10;
 const LOD_ZOOM = 0.45;     // below this zoom, boxes show only their name
@@ -220,7 +254,8 @@ export function createDiagramView(ctx) {
   function content(id) {
     const hit = contentCache.get(id);
     if (hit) return hit;
-    const c = K.nodeContent(model, /** @type {any} */ (elOf(id)), /** @type {any} */ (diagram()), ctx.notation(), id);
+    const e = /** @type {any} */ (elOf(id));
+    const c = decorate(model, e, diagram(), ctx.notation(), K.nodeContent(model, e, /** @type {any} */ (diagram()), ctx.notation(), id));
     const v = { content: c, min: naturalSize(c), wrap: wraps(c), heights: new Map(), stamp: ++stamp };
     contentCache.set(id, v);
     return v;
@@ -241,6 +276,8 @@ export function createDiagramView(ctx) {
     for (const id of e.ids) {
       const el = model.get(id);
       if (!el) { contentCache.clear(); return; } // something was deleted: start over (rare)
+      // a stereotype (or one of its tags) changed: every box that shows it may change
+      if (el.kind === 'stereotype' || el.kind === 'profile' || (el.owner && model.get(el.owner)?.kind === 'stereotype')) { contentCache.clear(); return; }
       contentCache.delete(id);
       if (el.source) contentCache.delete(el.source);
       if (el.target) contentCache.delete(el.target);
@@ -303,7 +340,7 @@ export function createDiagramView(ctx) {
     const selected = sel.has(id);
     const shape = c.shape || 'box';
     const run = marks.nodes.get(id);
-    const fill = layout()[id]?.fill;
+    const fill = layout()[id]?.fill || c.stereoFill;
     const g = s('g', { class: `node shape-${shape}` + (c.tone ? ` tone-${c.tone}` : '') + (fill ? ` fill-${fill}` : '') + (run ? ` run-${run}` : '') + (selected ? ' sel' : '') + (c.under ? ' under' : ''), 'data-id': id, transform: `translate(${r.x} ${r.y})` });
     if (c.tint) g.style.setProperty('--tint', c.tint);
     const inner = r.w - BOX.padX * 2;
@@ -396,6 +433,15 @@ export function createDiagramView(ctx) {
         }
       }
     }
+    // a problem badge on the top-right corner: the worst severity and how many
+    const probs = ctx.problemsFor?.(lastId(id)) || [];
+    if (probs.length) {
+      const sev = worst(probs);
+      const round = shape === 'circle' || shape === 'bullseye' || shape === 'circlex' || shape === 'history' || shape === 'diamond' || shape === 'ellipse';
+      const b = s('g', { class: `pbadge sev-${sev}`, 'data-badge': lastId(id), transform: `translate(${round ? r.w * 0.85 : r.w - 3} ${round ? r.h * 0.15 : 3})` });
+      b.append(s('title', {}, probs.map((p) => p.message).join('\n')), s('circle', { r: lod ? 11 : 8.5 }), s('text', { y: lod ? 4.5 : 3.5, style: lod ? 'font-size:13px' : '' }, probs.length > 9 ? '9+' : String(probs.length)));
+      g.append(b);
+    }
     if (selected && sel.size === 1) {
       const handles = /** @type {[number, number, string][]} */ (c.fixed ? (shape === 'bar' ? [[r.w, r.h / 2, 'e']] : []) : [[r.w, r.h / 2, 'e'], [r.w / 2, r.h, 's'], [r.w, r.h, 'se']]);
       for (const [hx, hy, kind] of handles) g.append(s('rect', { class: `handle h-${kind}`, 'data-handle': kind, x: hx - 4.5, y: hy - 4.5, width: 9, height: 9, rx: 2 }));
@@ -478,7 +524,8 @@ export function createDiagramView(ctx) {
     for (const [id, b] of built) if (!visible.has(id)) { b.g.remove(); built.delete(id); }
     for (const id of visible) {
       const r = /** @type {Rect} */ (rects.get(id));
-      const key = `${content(id).stamp}|${r.x},${r.y},${r.w},${r.h}|${sel.has(id) ? (sel.size === 1 ? 2 : 1) : 0}|${lod}|${marks.nodes.get(id) || ''}|${layout()[id]?.fill || ''}`;
+      const probs = ctx.problemsFor?.(lastId(id));
+      const key = `${content(id).stamp}|${r.x},${r.y},${r.w},${r.h}|${sel.has(id) ? (sel.size === 1 ? 2 : 1) : 0}|${lod}|${marks.nodes.get(id) || ''}|${layout()[id]?.fill || ''}|${probs?.length ? `${worst(probs)}${probs.length}:${probs.map((p) => p.message).join('|')}` : ''}`;
       const b = built.get(id);
       if (b && b.key === key) continue;
       const g = buildNode(id, r, lod);
@@ -718,10 +765,11 @@ export function createDiagramView(ctx) {
   function viewMenu(anchor) {
     const d = diagram();
     if (!d) return;
-    popupMenu(anchor, K.flags.map(([k, label]) => ({
+    const flags = /** @type {[string, string][]} */ ([...K.flags, ...('showTags' in (ELEMENTS[d.kind]?.props || {}) && !K.flags.some((/** @type {any} */ f) => f[0] === 'showTags') ? [['showTags', 'Stereotypes and tagged values']] : [])]);
+    popupMenu(anchor, [...flags.map(([k, label]) => ({
       label, hint: d.props[k] !== false ? 'on' : 'off',
       run: () => ctx.edit(`${d.props[k] !== false ? 'Hide' : 'Show'} ${label.toLowerCase()}`, (tx) => tx.setProps(diagramId, { [k]: d.props[k] === false })),
-    })), { title: 'This diagram shows' });
+    })), ...presetItems(ctx, d)], { title: 'This diagram shows' });
   }
 
   function removeFromView() {
@@ -787,6 +835,10 @@ export function createDiagramView(ctx) {
       drag = { mode: 'pan', sx: ev.clientX, sy: ev.clientY, cx: cam.x, cy: cam.y };
       stage.classList.add('panning');
     } else if (ev.button !== 0) return;
+    else if (t.closest('[data-badge]') && ctx.showProblems) {
+      ctx.showProblems(/** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-badge]')).dataset.badge));
+      return;
+    }
     else if (t.closest('[data-link]')) {
       const from = /** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-link]')).dataset.link);
       linking = { from, at: w, over: null, ok: null, kinds: [] };

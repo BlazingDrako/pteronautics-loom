@@ -12,7 +12,19 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.8.0: analysis and simulation)
+## What works today (0.9.0: validation and customization)
+
+- **Validation as you work.** 37 rules check the model a moment after every edit: parts and ports without types, connectors joining incompatible ports, bad multiplicities, blocks that contain or specialize themselves, unknown units, equations that cannot be read or that conflict, requirements without IDs or text, duplicate IDs, requirements nothing satisfies or verifies, failed tests and broken live checks, test cases that verify nothing, unallocated functions, unused blocks, duplicate and placeholder names, empty diagrams, and everything **Check** finds on activities, state machines and scenarios. Requirement **wording** is checked too (after INCOSE's guide): vague words (*fast*, *adequate*, *user-friendly*), TBDs, missing "shall", two requirements in one, overlong text.
+- **The problems panel** (⌘⇧M, or the counts in the status bar) lists every problem with its element and rule. Filter by severity, by text, or to the selection; click to go to the element, double-click to open a diagram showing it; **F8** / **⇧F8** step through them. Many problems have a **one-click fix** (give a requirement the next ID, a new ID for a duplicate, rename a placeholder, take off a stereotype that no longer fits), and any problem can be **ignored**.
+- **Badges** mark problems where you look: a colored count on each box of every diagram (block, internal block, requirement, activity, state machine, sequence, use case, package and parametric), a dot in the model browser, and a Problems section in the inspector. Click a badge to see its problems.
+- **Rule sets and your own rules.** Choose **Recommended**, **Strict** (every rule, with naming conventions and descriptions), **Requirements quality** or **Early draft** (errors only), then turn single rules off or change how severe they are. Write rules of your own without code: *every Requirement's priority must be set*, *every Block's name must match ^[A-Z]*. The project's rules are saved with it (in `.loom/project.json` for folders) and every change is undoable.
+- **Profiles and stereotypes.** Make your own kinds of element: a **profile** holds **stereotypes** (Flight critical, COTS, Software), each saying which kinds it applies to, with a color, an icon and **tags** (value properties, whose values are the defaults). Apply them in the inspector and fill in the tagged values. Boxes show «block, Flight critical», the icon and the color, and a tags compartment (a view option). Stereotypes are SysML v2 text: `library package`, `metadata def`, and `@'Flight critical' { dal = "B"; }` on the element.
+- **View presets.** Save a diagram's view options (compartments, labels, tags) as a named preset and apply it to any diagram of that kind from the **View** menu. Loom comes with a few (*Names only*, *Parts and ports*, *IDs and names*…), and one preset per kind can be the default for new diagrams.
+- **Preferences** (⌘,): theme (same as the computer, light or dark), eight **accent colors**, **high contrast**, the diagram grid, and notation.
+- **Remappable shortcuts.** Give any command a shortcut, or change its own: click it, press the keys. Loom says when a combo is taken and by what, and every change can be reset.
+- The Kestrel sample now has a profile with three stereotypes, applied to the battery, the ESC and the avionics.
+
+### 0.8.0: analysis and simulation
 
 - **Run behavior diagrams to check them.** Activity, state machine and sequence diagrams have a **Run** (or **Play**) button that opens a run panel beside the diagram, and the diagram lights up as it runs:
   - **Activities** run as tokens. An action runs when every flow into it has a token; forks copy tokens, joins wait for all of them, decisions take the way whose guard holds (guards such as `battery > 20%` are worked out from values you type in the panel) or ask you which way. Run, step, reset, three speeds.
@@ -137,6 +149,8 @@ package Logical {
 | `attribute def Energy { @Loom { unit = "Wh"; } }` / `attribute e : Energy = 675 [Wh];` | a value type / a value property typed by it |
 | `constraint def Endurance { attribute t [h]; … @Loom { expr = "t = E / P"; } }` | a constraint block: its parameters and equation |
 | `constraint range : Endurance;` `bind range.E = propulsion.battery.usableEnergy;` | a constraint property, and a binding of its parameter to a value |
+| `library package Safety { metadata def Critical { attribute dal = "C"; @Loom { extends = "partDef,part"; color = "coral"; } } }` | a profile, a stereotype (what it applies to, color, icon), and its tags with defaults |
+| `@Critical;` / `@Critical { dal = "B"; }` | a stereotype applied to the element it is written in, with tagged values |
 
 Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nearest element with that name; where two share one, qualify it (`Logical::'Battery Pack'`). Line notes (`// …`) are allowed and ignored.
 
@@ -150,7 +164,7 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), and behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text), analysis and simulation, and validation and customization (every rule, rule sets, custom rules, ignoring and fixing, stereotypes in the model, on diagrams, in text and in folders, view presets, settings and shortcut remapping) tests. Results are also left in `window.__results`.
 
 **Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; printing, parsing, building and applying 16,000 lines of SysML v2 text; and a 400-step activity and a 1,000-message sequence.
 
@@ -222,7 +236,14 @@ src/storage/folderfs.js      real folders (File System Access API) and an in-mem
 src/storage/zip.js           zip reading and writing
 src/model/paths.js           diagram layout keys (part paths and ports)
 src/ui/fuzzy.js              fuzzy matching and ranking
-src/ui/dom.js                DOM helpers, icons, brand, theme
+src/ui/dom.js                DOM helpers, icons, brand, theme, accent and contrast
+src/validate/rules.js        the validation rules and rule sets
+src/validate/engine.js       running the rules, project settings, custom rules, the live validator
+src/ui/problems.js           the problems panel
+src/ui/rulesdlg.js           the validation rules dialog
+src/custom/stereo.js         profiles and stereotypes: applying, tags, how boxes show them
+src/custom/presets.js        view presets
+src/ui/prefs.js              preferences: appearance, shortcuts, presets
 tests/                       test page, runner and Loom tests
 PLAN.md                      the build plan
 ```

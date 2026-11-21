@@ -19,6 +19,8 @@
 //   comment Name /* text */                                    a note
 //   doc /* text */                                             the owner's description
 //   @Loom { key = "value"; flag = true; }                      Loom properties
+//   library package Name { metadata def S { attribute tag; } } a profile and its stereotypes
+//   @S;   @S { tag = "value"; }                                a stereotype applied, with tagged values
 //   satisfy R;  verify R;  refine R;  derive R;  copy R;  allocate to X;  dependency to X;
 //   include U;  extend U;  participate in U;  import P::*;
 // Behavior:
@@ -42,6 +44,7 @@ import { lex, TextError, docText } from './lexer.js';
  *   refs?: Record<string, Ref>,          // references by property: from, to, represents
  *   fields?: Record<string, string>,     // values written in the declaration: nodeKind, flowKind, trigger…
  *   doc?: string, meta: { key: string, value: string | boolean, line: number, col: number }[],
+ *   applied?: { ref: Ref, tags: { key: string, value: string, line: number, col: number }[] }[],  metadata usages: @Critical { dal = "B"; }
  *   children: Node[], rels: { kind: string, ref: Ref, line: number }[],
  * }} Node
  */
@@ -120,10 +123,30 @@ export function parse(src) {
     const t = peek();
     const needParent = (/** @type {string} */ what) => { if (!parent) fail(t, `${what} must be inside an element`); return /** @type {Node} */ (parent); };
     if (isSym('@')) {
-      const owner = needParent('@Loom');
+      const owner = needParent('Metadata');
       next();
       const mt = peek();
-      if (name('a metadata name') !== 'Loom') fail(mt, 'Only @Loom metadata is supported');
+      const r = ref();
+      if (r.parts.length !== 1 || r.parts[0] !== 'Loom' || mt.t === 'qname') {
+        // a stereotype applied to the owner, maybe with tagged values
+        /** @type {{ key: string, value: string, line: number, col: number }[]} */
+        const tags = [];
+        if (isSym('{')) {
+          next();
+          while (!isSym('}')) {
+            const kt = peek();
+            const key = name('a tag name');
+            sym('=');
+            const vt = next();
+            if (vt.t !== 'string' && vt.t !== 'number' && !(vt.t === 'name' && (vt.v === 'true' || vt.v === 'false'))) fail(vt, `Expected a value ("text" or a number) for ${key}`);
+            tags.push({ key, value: vt.v, line: kt.line, col: kt.col });
+            sym(';');
+          }
+          next();
+        } else sym(';');
+        (owner.applied || (owner.applied = [])).push({ ref: r, tags });
+        return null;
+      }
       sym('{');
       while (!isSym('}')) {
         const kt = peek();
@@ -270,6 +293,21 @@ export function parse(src) {
         next();
         const n = node('package', t);
         n.name = name('a package name');
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'library': {
+        next(); word('package');
+        const n = node('profile', t);
+        n.name = name('a profile name');
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'metadata': {
+        next(); word('def');
+        const n = node('stereotype', t);
+        n.name = name('a stereotype name');
+        specs(n);
         bodyOrEnd(n);
         return n;
       }

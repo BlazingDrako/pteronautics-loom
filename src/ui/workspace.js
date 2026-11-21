@@ -28,6 +28,11 @@ import { applySnapshot } from '../text/build.js';
 import { projectFiles, signature, snapshotFromFiles, pick, FileError, PROJECT_FILE } from '../storage/folder.js';
 import { canUseFolders, pickFolder, hasAccess, readFolder, writeFolder } from '../storage/folderfs.js';
 import { LAYER_FILES } from '../text/printer.js';
+import { createValidator, updateConfig, configText } from '../validate/engine.js';
+import { createProblemsPanel, SEV_ICON } from './problems.js';
+import { openRulesDialog } from './rulesdlg.js';
+import { openPreferences } from './prefs.js';
+import { presetById, presetProps } from '../custom/presets.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -78,6 +83,11 @@ export function mountWorkspace(root, ctx) {
   let pending = false;
 
   const notation = () => settings.get().notation;
+  /** The validation rules, re-run shortly after every edit. */
+  const validator = createValidator(model);
+  const problemsFor = (/** @type {string} */ id) => validator.problemsFor(id);
+  /** @type {ReturnType<typeof createProblemsPanel> | null} */
+  let problemsPanel = null;
   /** Open tabs after the overview, in order: views ('v:…') and diagram ids. @type {string[]} */
   const tabs = ['v:home'];
   /** 'overview', a project view ('v:…') or a diagram id. */
@@ -104,6 +114,7 @@ export function mountWorkspace(root, ctx) {
     tree.render(); inspector.render(); paintStage();
     currentView()?.syncSelection(id);
     pane?.syncSelection(id);
+    problemsPanel?.render();
   }
 
   const tree = createTree({
@@ -115,8 +126,61 @@ export function mountWorkspace(root, ctx) {
     move: (id, owner) => edit('Move', (tx) => tx.move(id, owner)),
     remove: (id) => removeEl(id),
     open: (id) => openDiagram(id),
+    problemsFor,
   });
-  const inspector = createInspector({ model, settings, commands, selected: () => selected, select, edit, meta: () => meta, open: (id) => openDiagram(id) });
+  const inspector = createInspector({
+    model, settings, commands, selected: () => selected, select, edit, meta: () => meta, open: (id) => openDiagram(id),
+    validator, fix: (p) => fixProblem(p), ignore: (p) => ignoreProblem(p), openRules: () => openRules(), openPrefs: (tab) => openPreferences({ settings, commands }, tab),
+    create: (kind, owner) => create(kind, owner), newProfile: () => newProfile(),
+  });
+
+  // ---------- validation ----------
+  /** @param {import('../validate/engine.js').Problem} p */
+  function fixProblem(p) {
+    if (!p.fix) return;
+    if (p.fix.ui === 'rename') { select(p.id); const e = model.get(p.id); if (e && !e.layer && e.owner) tree.startRename(p.id); return; }
+    const run = p.fix.run;
+    if (run && edit(p.fix.label, (tx) => run(model, tx))) { validator.now(); toast(`${p.fix.label}. ${formatKeys('Mod+Z')} to undo.`); }
+  }
+  /** @param {import('../validate/engine.js').Problem} p */
+  function ignoreProblem(p) {
+    try { updateConfig(model, 'Ignore a problem', (c) => { if (!c.ignored.includes(p.key)) c.ignored.push(p.key); }); }
+    catch (e) { if (e instanceof ModelError) toast(e.message, true); else throw e; }
+    validator.now();
+    toast(`Ignored. Show ignored problems again from Rules. ${formatKeys('Mod+Z')} to undo.`);
+  }
+  async function openRules() {
+    const next = await openRulesDialog(model, notation());
+    if (!next) return;
+    const text = configText(next);
+    if (text === (model.root().props.validation || '')) return;
+    edit('Change validation rules', (tx) => tx.setProps(model.root().id, { validation: text }));
+    validator.now();
+  }
+  /** Go to a problem's element, on a diagram that shows it if there is one. @param {string} id */
+  function reveal(id) {
+    const d = model.diagramsShowing(id)[0] || (model.get(id)?.kind === 'message' || model.get(id)?.kind === 'lifeline' ? model.byKind('sd').find((x) => x.owner === model.get(id)?.owner) : undefined);
+    if (d) openDiagram(d.id);
+    select(id);
+  }
+  /** Show the problems panel, filtered to one element (a badge was clicked). @param {string} id */
+  function showProblems(id) {
+    if (!settings.get().problems) settings.update((s) => { s.problems = true; });
+    problemsPanel?.focusOn(id);
+  }
+  /** A new profile in the Logical layer, with a first stereotype to rename. */
+  function newProfile() {
+    const L = model.layers().find((l) => l.layer === 'l');
+    if (!L) return;
+    let st = '';
+    if (!edit('New profile', (tx) => { const p = tx.create('profile', { owner: L.id, name: 'Profile' }); st = tx.create('stereotype', { owner: p, name: 'Stereotype' }); })) return;
+    const prof = /** @type {string} */ (model.get(st)?.owner);
+    expanded.add(L.id); expanded.add(prof);
+    selected = st;
+    tree.render(); inspector.render(); paintStage();
+    tree.startRename(st);
+    toast('Name your stereotype, then choose what it applies to in the inspector.');
+  }
 
   // ---------- diagrams ----------
   /** Open a diagram, table or matrix, or a project view ('v:home', 'v:trace'). @param {string} id */
@@ -154,7 +218,7 @@ export function mountWorkspace(root, ctx) {
   function viewFor(id) {
     let v = views.get(id);
     if (!v) {
-      const base = { model, diagramId: id, notation, selected: () => selected, select, edit, newProps };
+      const base = { model, diagramId: id, notation, selected: () => selected, select, edit, newProps, problemsFor, showProblems, settings };
       const kind = model.get(id)?.kind;
       if (id === 'v:home') v = createVHomeView({ ...base, create: (k, owner, props) => create(k, owner, props), openTrace: () => openDiagram('v:trace'), openTable: () => openOrCreate('table'), openMatrix: () => openOrCreate('matrix') });
       else if (id === 'v:trace') v = createTraceView(base);
@@ -200,6 +264,10 @@ export function mountWorkspace(root, ctx) {
         populate(model, tx, id, startingBlocks(model, owner), notation());
       }
     })) return;
+    // new diagrams start with the default preset for their kind, if one is set
+    const pid = settings.get().defaultPresets[kind];
+    const pre = pid ? presetById(kind, settings.get().presets, pid) : undefined;
+    if (pre) model.transact('Apply the default preset', (tx) => tx.setProps(id, presetProps(kind, pre)));
     expanded.add(owner);
     selected = id;
     tree.render(); inspector.render();
@@ -411,7 +479,8 @@ export function mountWorkspace(root, ctx) {
     currentView()?.invalidate();
     if (ev.cause !== 'do') toast(`${ev.cause === 'undo' ? 'Undid' : 'Redid'}: ${ev.label}`);
   });
-  const unsubSettings = settings.subscribe(() => { paintPane(); tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
+  const unsubValid = validator.subscribe(() => { tree.render(); inspector.render(); paintStatus(); problemsPanel?.render(); currentView()?.invalidate(); });
+  const unsubSettings = settings.subscribe(() => { paintPane(); paintProblems(); problemsPanel?.render(); tree.render(); inspector.render(); paintStage(); paintStatus(); shell.classList.toggle('no-insp', !settings.get().inspector); paintTop(); paintTabs(); currentView()?.invalidate(); });
   const onUnload = () => { if (pending) flush(); };
   addEventListener('beforeunload', onUnload);
 
@@ -438,6 +507,14 @@ export function mountWorkspace(root, ctx) {
     } else if (!want && pane) { pane.dispose(); pane.el.remove(); pane = null; }
   }
   const status = h('footer', { class: 'statusbar' });
+  const mainEl = h('main', { class: 'main' }, tabbar, workrow);
+  function paintProblems() {
+    const want = settings.get().problems;
+    if (want && !problemsPanel) {
+      problemsPanel = createProblemsPanel({ model, validator, settings, notation, selected: () => selected, select, reveal, fix: fixProblem, ignore: ignoreProblem, openRules: () => openRules() });
+      mainEl.append(problemsPanel.el);
+    } else if (!want && problemsPanel) { problemsPanel.el.remove(); problemsPanel = null; }
+  }
 
   const sidebar = h('aside', { class: 'sidebar', 'aria-label': 'Model' },
     h('a', { class: 'brand', href: '#/', 'aria-label': 'Pteronautics Loom home' }, brandMark(), h('div', {}, h('div', { class: 'brand-name' }, 'Pteronautics'), h('div', { class: 'brand-sub brand-product' }, 'Loom'))),
@@ -455,6 +532,7 @@ export function mountWorkspace(root, ctx) {
     }, icon(v.icon), h('span', { class: 'nav-label' }, v.name), v.ready ? null : h('span', { class: 'soon' }, 'soon'))),
     h('div', { class: 'sidebar-foot' },
       h('a', { class: 'nav-item', href: '#/' }, icon('home'), h('span', { class: 'nav-label' }, 'All projects')),
+      h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('prefs.open') }, icon('palette'), h('span', { class: 'nav-label' }, 'Preferences')),
       h('button', { class: 'nav-item', type: 'button', onclick: () => commands.run('help.shortcuts') }, icon('keyboard'), h('span', { class: 'nav-label' }, 'Shortcuts'))));
 
   function paintTop() {
@@ -509,10 +587,22 @@ export function mountWorkspace(root, ctx) {
       h('span', { class: 'save-state ' + saveState }, h('span', { class: 'ok-dot' }), saveState === 'saved' ? 'Saved on this device' : saveState === 'saving' ? 'Saving…' : 'Not saved'),
       h('span', {}, `${model.elementCount() - 5} elements`),
       folderPill(),
+      problemsPill(),
       h('span', { class: 'grow' }),
       h('span', {}, st.notation === 'guided' ? 'Guided notation' : st.notation === 'v2' ? 'SysML v2 notation' : 'SysML notation'),
       st.integrations.works ? h('span', { class: 'pill accent' }, 'Works linked') : null,
     ].filter((x) => x !== null));
+  }
+
+  /** The status bar's problem counts: click to show or hide the problems panel. */
+  function problemsPill() {
+    const c = validator.report().counts;
+    const total = c.error + c.warning + c.info;
+    return h('button', { class: 'pill prob-pill' + (c.error ? ' has-error' : c.warning ? ' has-warning' : ''), type: 'button', 'aria-pressed': String(settings.get().problems),
+      title: `${total ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes` : 'No problems'}. ${settings.get().problems ? 'Hide' : 'Show'} the problems panel (${formatKeys('Mod+Shift+M')})`,
+      onclick: () => commands.run('view.problems') },
+    total ? [c.error ? h('span', { class: 'sev-error' }, icon(SEV_ICON.error), String(c.error)) : null, c.warning ? h('span', { class: 'sev-warning' }, icon(SEV_ICON.warning), String(c.warning)) : null, c.info ? h('span', { class: 'sev-info' }, icon(SEV_ICON.info), String(c.info)) : null]
+      : [icon('check'), h('span', {}, 'No problems')]);
   }
 
   function paintTabs() {
@@ -537,8 +627,9 @@ export function mountWorkspace(root, ctx) {
     v.invalidate();
   }
 
-  shell.append(sidebar, top, h('main', { class: 'main' }, tabbar, workrow), inspector.el, status);
+  shell.append(sidebar, top, mainEl, inspector.el, status);
   paintPane();
+  paintProblems();
   checkFolderOnOpen();
   root.replaceChildren(shell);
   paintTop(); paintMain(); paintStatus();
@@ -572,7 +663,17 @@ export function mountWorkspace(root, ctx) {
     syncFolder: () => syncFolder(true),
     linked: () => !!meta.folder,
     textPane: () => pane,
-    dispose() { pane?.dispose(); clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
+    validator,
+    openRules,
+    newProfile,
+    /** Go to the next (1) or previous (-1) problem. @param {1 | -1} dir */
+    stepProblem(dir) {
+      if (!validator.report().problems.length) { toast('No problems'); return; }
+      if (!settings.get().problems) settings.update((st) => { st.problems = true; });
+      const p = problemsPanel?.step(dir);
+      if (p) toast(p.message);
+    },
+    dispose() { pane?.dispose(); clearTimeout(saveTimer); flush(); unsub(); unsubSettings(); unsubValid(); validator.dispose(); removeEventListener('beforeunload', onUnload); views.forEach((v) => v.dispose()); },
   };
 }
 

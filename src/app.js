@@ -1,7 +1,8 @@
 // Pteronautics Loom: startup, routing, commands and keyboard shortcuts.
 //   #/            Home: your projects
 //   #/p/<id>      a project's workspace
-import { initTheme, toggleTheme, toast, formatKeys, IS_MAC, h } from './ui/dom.js';
+import { initTheme, toggleTheme, toast, IS_MAC, applyLook } from './ui/dom.js';
+import { openPreferences } from './ui/prefs.js';
 import { createSettings } from './settings.js';
 import { createCommands } from './commands.js';
 import { openPalette, isPaletteOpen } from './ui/palette.js';
@@ -15,6 +16,10 @@ import { canUseFolders } from './storage/folderfs.js';
 initTheme();
 const settings = createSettings();
 const commands = createCommands();
+// appearance and shortcut changes from the preferences apply everywhere, at once
+const applySettings = () => { applyLook(settings.get()); commands.setOverrides(settings.get().keys); };
+applySettings();
+settings.subscribe(applySettings);
 const projects = createProjectStore(await defaultBackend());
 const app = /** @type {HTMLElement} */ (document.getElementById('app'));
 
@@ -41,7 +46,22 @@ commands.add({
     toast(settings.get().integrations.works ? 'Pteronautics Works link turned on' : 'Pteronautics Works link turned off');
   },
 });
-commands.add({ id: 'help.shortcuts', title: 'Keyboard shortcuts', group: 'Help', keywords: ['keys', 'hotkeys'], run: showShortcuts });
+commands.add({ id: 'help.shortcuts', title: 'Keyboard shortcuts', group: 'Help', keywords: ['keys', 'hotkeys', 'remap', 'change', 'customize'], run: () => openPreferences({ settings, commands }, 'keys') });
+commands.add({ id: 'prefs.open', title: 'Preferences…', group: 'General', keys: 'Mod+,', keywords: ['settings', 'options', 'customize', 'theme', 'accent', 'contrast', 'shortcuts', 'presets'], run: () => openPreferences({ settings, commands }, 'look') });
+commands.add({ id: 'prefs.presets', title: 'Manage view presets…', group: 'View', keywords: ['preset', 'view options', 'compartments', 'default'], run: () => openPreferences({ settings, commands }, 'presets') });
+commands.add({ id: 'view.contrast', title: 'Switch high contrast on or off', group: 'View', keywords: ['accessibility', 'contrast', 'low vision', 'projector'], run: () => settings.update((s) => { s.contrast = s.contrast === 'high' ? 'normal' : 'high'; }) });
+commands.add({ id: 'view.grid', title: 'Show or hide the grid on diagrams', group: 'View', keywords: ['dots', 'background'], run: () => settings.update((s) => { s.grid = !s.grid; }) });
+
+// ---------- validation ----------
+commands.add({ id: 'view.problems', title: 'Show or hide the problems panel', group: 'Validation', keys: 'Mod+Shift+M', keywords: ['validation', 'errors', 'warnings', 'check', 'lint', 'rules'], enabled: inProject, run: () => settings.update((s) => { s.problems = !s.problems; }) });
+commands.add({ id: 'problems.next', title: 'Go to the next problem', group: 'Validation', keys: 'F8', keywords: ['error', 'warning'], enabled: inProject, run: () => ws?.stepProblem(1) });
+commands.add({ id: 'problems.prev', title: 'Go to the previous problem', group: 'Validation', keys: 'Shift+F8', keywords: ['error', 'warning'], enabled: inProject, run: () => ws?.stepProblem(-1) });
+commands.add({ id: 'validation.rules', title: 'Validation rules and rule sets…', group: 'Validation', keywords: ['rules', 'rule set', 'strict', 'lint', 'custom rule', 'ignore'], enabled: inProject, run: () => ws?.openRules() });
+commands.add({
+  id: 'validation.run', title: 'Validate the model now', group: 'Validation', keywords: ['check', 'errors', 'lint'], enabled: inProject,
+  run: () => { if (!ws) return; ws.validator.now(); const c = ws.validator.report().counts; toast(c.error + c.warning + c.info ? `${c.error} errors, ${c.warning} warnings, ${c.info} notes (${Math.round(ws.validator.report().ms)} ms)` : `No problems (${Math.round(ws.validator.report().ms)} ms)`); },
+});
+commands.add({ id: 'model.newProfile', title: 'New profile (your own stereotypes)', group: 'Model', keywords: ['stereotype', 'profile', 'custom kind', 'tagged value', 'metadata'], enabled: inProject, run: () => ws?.newProfile() });
 commands.add({ id: 'help.library', title: 'Open the SysML library', group: 'Help', keys: '?', keywords: ['reference', 'help', 'docs'], enabled: () => false, run: () => {} });
 
 // ---------- projects ----------
@@ -111,19 +131,6 @@ commands.add({ id: 'diagram.remove', title: 'Remove the selection from the diagr
 /** Model elements as palette items, so typing a name jumps to it. @returns {import('./commands.js').Command[]} */
 function elementItems() {
   return (ws?.searchItems() || []).map((e) => ({ id: `goto:${e.id}`, title: e.name, group: e.kind, run: () => ws?.select(e.id) }));
-}
-
-function showShortcuts() {
-  const list = commands.list().filter((c) => c.keys);
-  import('./ui/dialog.js').then(({ modal }) => modal({
-    title: 'Keyboard shortcuts', ok: 'Done',
-    build: () => ({
-      body: h('div', { class: 'shortcuts' },
-        list.map((c) => h('div', { class: 'shortcut' }, h('span', {}, c.title), h('span', { class: 'kbd' }, formatKeys(/** @type {string} */ (c.keys))))),
-        h('div', { class: 'shortcut' }, h('span', {}, 'Move in the model browser'), h('span', { class: 'kbd' }, '↑ ↓ ← →'))),
-      value: () => true,
-    }),
-  }));
 }
 
 addEventListener('keydown', (e) => {

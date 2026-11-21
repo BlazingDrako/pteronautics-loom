@@ -105,7 +105,7 @@ export const reqKind = {
     { kind: 'testCase', label: 'Test case', title: 'Add a new test case' },
   ],
   addLayer: /** @type {import('../model/metamodel.js').Layer} */ ('r'),
-  flags: /** @type {[string, string][]} */ ([['showId', 'Requirement IDs'], ['showText', 'Requirement text'], ['showRoles', 'Relationship names on lines'], ['snap', 'Snap to grid and guides']]),
+  flags: /** @type {[string, string][]} */ ([['showId', 'Requirement IDs'], ['showText', 'Requirement text'], ['showTags', 'Stereotypes and tagged values'], ['showRoles', 'Relationship names on lines'], ['snap', 'Snap to grid and guides']]),
   empty: 'Drag requirements, test cases and blocks here from the model browser, or add a requirement with the button above.',
   noun: 'elements',
   /** @param {Element | undefined} e @param {Notation} n */

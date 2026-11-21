@@ -24,6 +24,7 @@ import { FONTS, textWidth, wrapLines } from './measure.js';
  *   label?: string, glyph?: string, linkable?: boolean,
  *   tone?: string,                    // a color role for the stylesheet (action, state, initial, decision…)
  *   tint?: string,                    // a CSS color the box is tinted with (a lane's or package's layer)
+ *   stereoFill?: string,              // the fill a stereotype gives the box (a FILLS name)
  * }} NodeContent
  */
 /**
@@ -175,7 +176,7 @@ export const bddKind = {
     { kind: 'interfaceDef', label: 'Interface', title: 'Add a new interface block' },
   ]),
   addLayer: /** @type {import('../model/metamodel.js').Layer} */ ('l'),
-  flags: /** @type {[string, string][]} */ ([['showParts', 'Parts compartment'], ['showValues', 'Values compartment'], ['showPorts', 'Ports compartment'], ['showRoles', 'Role names on lines'], ['snap', 'Snap to grid and guides']]),
+  flags: /** @type {[string, string][]} */ ([['showParts', 'Parts compartment'], ['showValues', 'Values compartment'], ['showPorts', 'Ports compartment'], ['showTags', 'Stereotypes and tagged values'], ['showRoles', 'Role names on lines'], ['snap', 'Snap to grid and guides']]),
   empty: 'Drag blocks here from the model browser, or add one with the Block button.',
   noun: 'blocks',
   /** @param {Element | undefined} e @param {Notation} n */

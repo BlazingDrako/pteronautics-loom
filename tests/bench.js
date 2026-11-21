@@ -16,6 +16,7 @@ import { createSequenceView } from '../src/canvas/sdview.js';
 import { analyze } from '../src/analysis/solver.js';
 import { checksOf } from '../src/analysis/verify.js';
 import { createActivityRun, checkActivity } from '../src/sim/activity.js';
+import { validate } from '../src/validate/engine.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -51,6 +52,10 @@ export async function runBench(report) {
   report({ name: `Open the model: parse, check and index ${opened.count().toLocaleString()} elements`, ms: tOpen, budget: 1000 });
   const tEdit = time(() => opened.transact('Rename', (/** @type {any} */ tx) => tx.rename(opened.byKind('partDef')[100].id, 'Renamed')));
   report({ name: 'One edit in the large model (transaction + change event)', ms: tEdit, budget: 16 });
+  validate(opened);
+  let nProblems = 0;
+  const tValidate = time(() => { nProblems = validate(opened).problems.length; });
+  report({ name: `Validate ${opened.count().toLocaleString()} elements with every Recommended rule (${nProblems.toLocaleString()} problems)`, ms: tValidate, budget: 200, note: 'plan budget: incremental validation under 50 ms off the main thread. Today a full pass runs on the main thread 250 ms after editing pauses' });
 
   // ---------- 2. a 2,000-block diagram ----------
   const dm = createModel();
@@ -172,7 +177,7 @@ export async function runBench(report) {
   /** @type {number[]} */
   const tEditT = [];
   for (let i = 0; i < 5; i++) tEditT.push(time(() => { rm.transact('Edit', (tx) => tx.setProps(someReq.id, { text: `Changed ${i}` })); table.invalidate(); table.render(); }));
-  report({ name: 'Requirements table: edit a cell → repaint (median)', ms: median(tEditT), budget: 100, note: 'recomputes every requirement\'s status; a worker comes with validation (M8)' });
+  report({ name: 'Requirements table: edit a cell → repaint (median)', ms: median(tEditT), budget: 100, note: 'recomputes every requirement\'s status on the main thread' });
   table.dispose(); table.el.remove();
 
   const mx = createMatrixView({ ...base, diagramId: mid });

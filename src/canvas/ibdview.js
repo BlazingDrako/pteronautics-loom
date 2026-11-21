@@ -7,6 +7,9 @@
 //   ⌥-drag a port to slide it along its box's edge. The chevron collapses a part.
 //   Drop blocks from the model browser to add parts typed by them.
 import { h, s, icon, toast, formatKeys } from '../ui/dom.js';
+import { stereoFill } from '../custom/stereo.js';
+import { worst } from '../validate/engine.js';
+import { presetItems } from './view.js';
 import { popupMenu } from '../ui/menu.js';
 import { ibdScene, packIbd, routeConnectors, partLabel, portLabel, snapToBorder, sideOf, containerAt, PORT, PART } from './ibd.js';
 import { canConnect, orderEnds, matchingPort, effectiveDirection } from './connect.js';
@@ -40,6 +43,9 @@ const roleName = (n) => { const w = n.replace(/[^A-Za-z0-9 ]+/g, ' ').trim().spl
  *   selected: () => string | null,
  *   select: (id: string | null) => void,
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
+ *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
+ *   showProblems?: (id: string) => void,
+ *   settings?: import('../settings.js').SettingsStore,
  * }} ctx
  */
 export function createIbdView(ctx) {
@@ -144,7 +150,8 @@ export function createIbdView(ctx) {
     for (const p of [...sc.parts].sort((a, b) => a.depth - b.depth)) {
       const r = p.rect, on = sel.has(p.key);
       const label = partLabel(p.part, p.type, n, showTypes);
-      out.push(`<g class="part d${Math.min(p.depth, 4)}${on ? ' sel' : ''}${dropInto === p.key ? ' drop' : ''}${linking?.target === p.key ? ' link-target' : ''}" data-key="${esc(p.key)}">`);
+      const sfill = stereoFill(model, p.part.id) || (p.type ? stereoFill(model, p.type.id) : undefined);
+      out.push(`<g class="part d${Math.min(p.depth, 4)}${sfill ? ` fill-${sfill}` : ''}${on ? ' sel' : ''}${dropInto === p.key ? ' drop' : ''}${linking?.target === p.key ? ' link-target' : ''}" data-key="${esc(p.key)}">`);
       out.push(`<rect class="part-box" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="10"/>`);
       const nameW = r.w - 24 - (p.hasInside ? 26 : 0);
       const [nm, ...rest] = label.split(/( : | \()/);
@@ -157,6 +164,7 @@ export function createIbdView(ctx) {
         out.push(`<text class="part-hint" x="${r.x + 12}" y="${r.y + 44}">${esc(ellipsize(`${inside} part${inside === 1 ? '' : 's'} inside`, r.w - 24, FONTS.row))}</text>`);
       }
       if (on && sel.size === 1) out.push(handles(p.key, r));
+      out.push(badge(p.part.id, r.x + r.w - (p.hasInside ? 36 : 3), r.y + 3));
       out.push('</g>');
     }
 
@@ -203,6 +211,7 @@ export function createIbdView(ctx) {
         const [ux, uy] = [nrm[0] * sgn, nrm[1] * sgn];
         out.push(`<polygon class="port-arrow" points="${cx + ux * 3.5},${cy + uy * 3.5} ${cx - ux * 2.5 - uy * 3},${cy - uy * 2.5 + ux * 3} ${cx - ux * 2.5 + uy * 3},${cy - uy * 2.5 - ux * 3}"/>`);
       } else out.push(`<rect class="port-arrow" x="${cx - 2}" y="${cy - 2}" width="4" height="4"/>`);
+      out.push(badge(p.port.id, r.x + r.w + 2, r.y - 2, true));
       out.push('</g>');
       if (showNames) {
         const label = ellipsize(connectedKeys.has(p.key) && showFlows ? portLabel(p.port, null, false) : portLabel(p.port, p.type, showTypes), 170, FONTS.label);
@@ -227,6 +236,14 @@ export function createIbdView(ctx) {
     if (lasso) out.push(`<rect class="lasso" x="${lasso.x}" y="${lasso.y}" width="${lasso.w}" height="${lasso.h}"/>`);
     camG.innerHTML = out.join('');
     lastRenderMs = performance.now() - t0;
+  }
+
+  /** A problem badge for an element, at a point. @param {string} id @param {number} x @param {number} y @param {boolean} [small] */
+  function badge(id, x, y, small = false) {
+    const probs = ctx.problemsFor?.(id) || [];
+    if (!probs.length) return '';
+    const sev = worst(probs), rr = small ? 6.5 : 8.5;
+    return `<g class="pbadge sev-${sev}" data-badge="${esc(id)}" transform="translate(${x} ${y})"><title>${esc(probs.map((p) => p.message).join('\n'))}</title><circle r="${rr}"/>${small ? '' : `<text y="3.5">${probs.length > 9 ? '9+' : probs.length}</text>`}</g>`;
   }
 
   /** @param {string} key @param {Rect} r */
@@ -442,10 +459,10 @@ export function createIbdView(ctx) {
     const d = diagram();
     if (!d) return;
     const flags = /** @type {[string, string][]} */ ([['showTypes', 'Types on parts and ports'], ['showPortNames', 'Port names'], ['showFlows', 'Item flows'], ['snap', 'Snap to grid']]);
-    popupMenu(anchor, flags.map(([k, label]) => ({
+    popupMenu(anchor, [...flags.map(([k, label]) => ({
       label, hint: d.props[k] !== false ? 'on' : 'off',
       run: () => ctx.edit(`${d.props[k] !== false ? 'Hide' : 'Show'} ${label.toLowerCase()}`, (tx) => tx.setProps(diagramId, { [k]: d.props[k] === false })),
-    })), { title: 'This diagram shows' });
+    })), ...presetItems(ctx, d)], { title: 'This diagram shows' });
   }
   /** @param {string} key */
   function toggleCollapse(key) {
@@ -599,6 +616,7 @@ export function createIbdView(ctx) {
     const keyOf = (/** @type {string} */ sel_) => /** @type {string} */ (/** @type {HTMLElement} */ (t.closest(sel_))?.dataset.key);
     if (ev.button === 1 || (ev.button === 0 && spaceDown)) { drag = { mode: 'pan', sx: ev.clientX, sy: ev.clientY, cx: cam.x, cy: cam.y }; stage.classList.add('panning'); }
     else if (ev.button !== 0) return;
+    else if (t.closest('[data-badge]') && ctx.showProblems) { ctx.showProblems(/** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-badge]')).dataset.badge)); return; }
     else if (t.closest('.coll')) { toggleCollapse(keyOf('.coll')); return; }
     else if (t.closest('[data-handle]')) { const key = keyOf('[data-handle]'); drag = { mode: 'resize', key, handle: /** @type {string} */ (/** @type {HTMLElement} */ (t.closest('[data-handle]')).dataset.handle), start: w, orig: { ...rectOf(key) } }; }
     else if (t.closest('.port')) {

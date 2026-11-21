@@ -58,6 +58,18 @@ export function buildKestrel(m) {
     tx.create('attribute', { owner: esc, name: 'maxCurrent', props: { value: '80', unit: 'A' } });
     const escPwr = tx.create('port', { owner: esc, name: 'pwrIn', props: { type: power, direction: 'in' } });
     const escCmd = tx.create('port', { owner: esc, name: 'cmdIn', props: { type: pwm, direction: 'in' } });
+
+    // A profile: the project's own kinds of element
+    const prof = tx.create('profile', { owner: L, name: 'Kestrel profile', props: { doc: 'Stereotypes used across the Kestrel model.' } });
+    const crit = tx.create('stereotype', { owner: prof, name: 'Flight critical', props: { extends: 'partDef,part', color: 'coral', icon: '◆', doc: 'A failure of this item can cause the loss of the air vehicle.' } });
+    const dal = tx.create('attribute', { owner: crit, name: 'dal', props: { value: 'C', doc: 'Design assurance level, A (most severe) to E.' } });
+    tx.create('attribute', { owner: crit, name: 'safetyOwner', props: { value: '' } });
+    const cots = tx.create('stereotype', { owner: prof, name: 'COTS', props: { extends: 'partDef', color: 'slate', icon: '▣', doc: 'Bought off the shelf rather than designed here.' } });
+    const supplier = tx.create('attribute', { owner: cots, name: 'supplier', props: { value: '' } });
+    tx.create('stereotype', { owner: prof, name: 'Safety requirement', props: { extends: 'requirement', color: 'amber', icon: '!' } });
+    tx.setProps(batt, { applied: [{ s: crit, tags: { [dal]: 'B' } }] });
+    tx.setProps(avion, { applied: [{ s: crit, tags: { [dal]: 'A' } }] });
+    tx.setProps(esc, { applied: [{ s: crit }, { s: cots, tags: { [supplier]: 'Supplier A' } }] });
     const escOut = tx.create('port', { owner: esc, name: 'phaseOut', props: { type: ac, direction: 'out' } });
     const motor = tx.create('partDef', { owner: L, name: 'Motor' });
     const motorIn = tx.create('port', { owner: motor, name: 'phaseIn', props: { type: ac, direction: 'in' } });

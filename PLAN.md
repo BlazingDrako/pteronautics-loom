@@ -129,7 +129,7 @@ Each milestone ends in something usable and committed. Sizes are relative: S = d
 | M5 ✓ | **SysML v2 text and projects** (done in 0.6.0) | L | Parser and printer for everything in M1–M4, with round-trip tests. Text pane beside diagrams, both editable. Folder projects with the File System Access API, zip import/export, git-friendly output. |
 | M6 ✓ | **Behavior diagrams** (done in 0.7.0) | L | Activity, state machine, sequence, use case and package diagrams. Allocation via swimlanes and allocate relationships. |
 | M7 ✓ | **Analysis and simulation** (done in 0.8.0) | L | Units and value types, constraint blocks, the parametric diagram and solver. Verification evidence on requirements with live pass/fail. Activity token simulation and state machine execution, scenario playback, and checks that explore every run. Color for behavior diagrams. |
-| M8 | **Validation and customization** | M | Rule engine and rule sets, problems panel, canvas badges. Profiles and stereotypes, view presets, themes, shortcut remapping. |
+| M8 ✓ | **Validation and customization** (done in 0.9.0) | M | Rule engine and rule sets, problems panel, canvas badges. Profiles and stereotypes, view presets, themes, shortcut remapping. |
 | M9 | **Interop and documents** | L | Cameo/MagicDraw XMI import (SysML 1.x), ReqIF import/export, CSV/Excel, SysML v2 API client, document generation (HTML/PDF; .docx later). The library reference completed. |
 | M10 | **Desktop, polish, launch** | M | PWA (installable, offline), Tauri build, performance hardening, sample models, docs. Loom added to the Pteronautics family table and site alongside Atlas and Works. |
 | opt | **Works integration** | S–M | After M7: the Integrations switch, value bindings, Works runs as evidence. Off by default. |

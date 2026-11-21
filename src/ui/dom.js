@@ -95,6 +95,13 @@ const ICONS = {
   zip: '<path d="M6 3 H14 L19 8 V21 H6 Z"/><path d="M11 3 V5 M11 7 V9 M11 11 V13"/>',
     req: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8 H16 M8 12 H16 M8 16 H12"/>',
   fit: '<path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/>',
+  alert: '<path d="M12 3 L22 20 H2 Z"/><path d="M12 10 V14 M12 17 V17.01"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="M9 9 L15 15 M15 9 L9 15"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11 V16 M12 8 V8.01"/>',
+  eyeOff: '<path d="M3 3 L21 21"/><path d="M10.6 6.1 C16 5.5 20.3 9 22 12 C21.3 13.4 20.2 14.8 18.8 15.9 M14.1 14.2 A3 3 0 0 1 9.8 9.9 M6.3 7.4 C4.4 8.6 2.9 10.3 2 12 C5 18 13 19.6 17.4 16.8"/>',
+  tag: '<path d="M3 12 V4 H11 L21 14 L14 21 Z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
+  sliders: '<path d="M4 7 H14 M18 7 H20 M4 17 H8 M12 17 H20"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  wand: '<path d="M4 20 L15 9 M13 7 L17 11"/><path d="M18 3 V6 M16.5 4.5 H19.5 M20 12 V14 M19 13 H21 M10 3 V5 M9 4 H11"/>',
   command: '<path d="M9 6 a3 3 0 1 0-3 3 H18 a3 3 0 1 0-3-3 V18 a3 3 0 1 0 3-3 H6 a3 3 0 1 0 3 3 Z"/>',
 };
 /** @param {string} name @returns {SVGElement} */
@@ -130,11 +137,25 @@ export function initTheme() {
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 }
-export function toggleTheme() {
-  const t = resolvedTheme() === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = t;
-  try { localStorage.setItem(THEME_KEY, t); } catch { /* storage blocked */ }
+export function toggleTheme() { setTheme(resolvedTheme() === 'dark' ? 'light' : 'dark'); }
+/** The chosen theme: 'system' follows the computer. @returns {'system' | 'light' | 'dark'} */
+export function chosenTheme() { const t = document.documentElement.dataset.theme; return t === 'light' || t === 'dark' ? t : 'system'; }
+/** @param {'system' | 'light' | 'dark'} t */
+export function setTheme(t) {
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  try { if (t === 'system') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, t); } catch { /* storage blocked */ }
   applyTheme();
+}
+/**
+ * The rest of the look: accent color, contrast and the diagram grid (from settings).
+ * @param {{ accent: string, contrast: string, grid: boolean }} o
+ */
+export function applyLook(o) {
+  const r = document.documentElement.dataset;
+  if (o.accent && o.accent !== 'blue') r.accent = o.accent; else delete r.accent;
+  if (o.contrast === 'high') r.contrast = 'high'; else delete r.contrast;
+  if (o.grid === false) r.grid = 'off'; else delete r.grid;
+  dispatchEvent(new Event('themechange'));
 }
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */

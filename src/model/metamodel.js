@@ -11,8 +11,10 @@
  * @typedef {({ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
  *   | { type: 'enum', label: string, options: string[], default: string }
  *   | { type: 'ref', label: string, kinds: string[], default?: null, required?: true }  required: deleting the target deletes this element
- *   | { type: 'end', label: string, default?: null }) & { hidden?: true }} PropSpec  an end: a connector's, or a binding's value (its "port" is then a value property)  hidden: kept by a view's own controls, not shown in the inspector
+ *   | { type: 'end', label: string, default?: null }
+ *   | { type: 'stereo', label: string, default?: null }) & { hidden?: true }} PropSpec  stereo: the stereotypes applied to an element, with their tagged values (see Applied)  an end: a connector's, or a binding's value (its "port" is then a value property)  hidden: kept by a view's own controls, not shown in the inspector
  * @typedef {{ path: string[], port: string | null }} End  a connector end: parts from the owning block, then an optional port
+ * @typedef {{ s: string, tags?: Record<string, string> }} Applied  a stereotype applied to an element: its id, and tagged values by tag (value property) id
  */
 /**
  * @typedef {{
@@ -47,6 +49,7 @@ export const ELEMENTS = {
     owners: ['package'],
     props: {
       idPrefix: { type: 'text', label: 'Requirement ID prefix', default: '', placeholder: 'REQ-' },
+      validation: { type: 'text', label: 'Validation', default: '', hidden: true },
       doc: DOC,
     },
     help: 'Groups model elements. Every element lives in exactly one package or element. A requirement ID prefix here numbers the requirements created inside it.',
@@ -127,14 +130,14 @@ export const ELEMENTS = {
   },
   attribute: {
     names: { sysml: 'Value property', v2: 'attribute', guided: 'Property' }, abbr: 'val',
-    owners: ['partDef', 'interfaceDef', 'requirement', 'part', 'constraintDef'],
+    owners: ['partDef', 'interfaceDef', 'requirement', 'part', 'constraintDef', 'stereotype'],
     props: {
       type: { type: 'ref', label: 'Value type', kinds: ['valueType'] },
       value: { type: 'text', label: 'Value', default: '', placeholder: '16' },
       unit: { type: 'text', label: 'Unit', default: '', placeholder: 'Ah' },
       doc: DOC,
     },
-    help: 'A quantity with a unit, such as capacity = 16 Ah. Leave the value empty to have a parametric diagram compute it. In a constraint block, it is a parameter of the equation.',
+    help: 'A quantity with a unit, such as capacity = 16 Ah. Leave the value empty to have a parametric diagram compute it. In a constraint block, it is a parameter of the equation. In a stereotype, it is a tag, and its value is the default.',
   },
   valueType: {
     names: { sysml: 'Value type', v2: 'attribute def', guided: 'Kind of quantity' }, abbr: 'vt', defaultLayer: 'l',
@@ -175,6 +178,7 @@ export const ELEMENTS = {
       showParts: { type: 'bool', label: 'Parts compartment', default: true },
       showValues: { type: 'bool', label: 'Values compartment', default: true },
       showPorts: { type: 'bool', label: 'Ports compartment', default: true },
+      showTags: { type: 'bool', label: 'Stereotypes and tagged values', default: true },
       showRoles: { type: 'bool', label: 'Role names on lines', default: true },
       snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
       doc: DOC,
@@ -199,6 +203,7 @@ export const ELEMENTS = {
     props: {
       showId: { type: 'bool', label: 'Requirement IDs', default: true },
       showText: { type: 'bool', label: 'Requirement text', default: true },
+      showTags: { type: 'bool', label: 'Stereotypes and tagged values', default: true },
       showRoles: { type: 'bool', label: 'Relationship names on lines', default: true },
       snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
       doc: DOC,
@@ -375,6 +380,23 @@ export const ELEMENTS = {
     },
     help: 'Shows a block\'s equations (constraint properties) and the values they connect. Loom solves them as you edit: values without a number are computed, and a value that breaks an equation is flagged.',
   },
+  // ---------- customization (M8) ----------
+  profile: {
+    names: { sysml: 'Profile', v2: 'library package', guided: 'Custom kinds' }, abbr: 'prof', defaultLayer: 'l',
+    owners: ['package'], props: { doc: DOC },
+    help: 'A set of stereotypes: your own kinds of element (Flight critical, COTS, Software), each with a color, an icon and tagged values.',
+  },
+  stereotype: {
+    names: { sysml: 'Stereotype', v2: 'metadata def', guided: 'Custom kind' }, abbr: 'stp',
+    owners: ['profile'],
+    props: {
+      extends: { type: 'text', label: 'Applies to', default: '', hidden: true },
+      color: { type: 'enum', label: 'Color', options: ['none', 'blue', 'teal', 'green', 'amber', 'coral', 'pink', 'violet', 'slate'], default: 'none' },
+      icon: { type: 'text', label: 'Icon', default: '', placeholder: '◆' },
+      doc: DOC,
+    },
+    help: 'Your own kind of element. Apply it to blocks, parts, requirements or anything it applies to: they show «its name», take its color and icon on diagrams, and get its tags (value properties inside it) to fill in.',
+  },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
     owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef', 'state', 'interaction', 'useCase', 'constraintDef'],
@@ -382,6 +404,12 @@ export const ELEMENTS = {
     help: 'A note attached to an element.',
   },
 };
+
+/** Kinds a stereotype can never be applied to: profiles and stereotypes themselves, and diagrams. */
+export const NO_STEREO = ['profile', 'stereotype'];
+for (const [k, spec] of Object.entries(ELEMENTS)) if (!spec.diagram && !NO_STEREO.includes(k)) spec.props.applied = { type: 'stereo', label: 'Stereotypes', hidden: true };
+/** May stereotypes be applied to elements of this kind? @param {string} kind */
+export const canHaveStereo = (kind) => !!ELEMENTS[kind]?.props.applied;
 
 /** Relationship kinds. Sources and targets are element kinds ('*' = any). */
 /** @type {Record<string, RelKind>} */
@@ -457,7 +485,7 @@ export const LAYERS = /** @type {const} */ ([
 ]);
 
 /** Kinds that are plumbing of a diagram rather than things to trace to. */
-export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment', 'binding'];
+export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment', 'binding', 'profile', 'stereotype'];
 
 /** @param {string} kind */
 export const isRel = (kind) => kind in RELATIONSHIPS;
@@ -498,6 +526,6 @@ export function defaultProps(kind) {
   const spec = ELEMENTS[kind]?.props || {};
   /** @type {Record<string, any>} */
   const out = {};
-  for (const [k, p] of Object.entries(spec)) out[k] = p.type === 'ref' || p.type === 'end' ? null : ('default' in p ? p.default : '');
+  for (const [k, p] of Object.entries(spec)) out[k] = p.type === 'ref' || p.type === 'end' || p.type === 'stereo' ? null : ('default' in p ? p.default : '');
   return out;
 }

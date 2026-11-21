@@ -15,6 +15,12 @@ import { parseLayer, buildSnapshot } from '../text/build.js';
 import { TextError } from '../text/lexer.js';
 import { keysOf } from '../text/names.js';
 import { VERSION } from '../version.js';
+import { parseConfig, configText } from '../validate/engine.js';
+
+/** The validation settings as saved in project.json (an object), from the root's text. @param {string} text */
+const validationOut = (text) => { if (!text) return undefined; try { return JSON.parse(text); } catch { return undefined; } };
+/** And back: the same text the app writes, whatever the key order in the file. @param {unknown} v */
+const validationIn = (v) => (v && typeof v === 'object' ? configText(parseConfig(v)) : '');
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {Record<string, string>} Files  path → text */
@@ -64,6 +70,7 @@ export function projectFiles(m, meta) {
     format: FOLDER_FORMAT, version: FOLDER_VERSION, savedBy: `Pteronautics Loom ${VERSION}`,
     name: meta.name, description: meta.description || '', root: m.root().id,
     layers: Object.fromEntries(m.layers().map((l) => [/** @type {string} */ (l.layer), LAYER_FILES[/** @type {string} */ (l.layer)]])),
+    ...(m.root().props.validation ? { validation: validationOut(m.root().props.validation) } : {}),
   }) + '\n';
   files[IDS_FILE] = stableJson(ids) + '\n';
   files[LAYOUT_FILE] = stableJson(layouts) + '\n';
@@ -115,9 +122,9 @@ export function modelFromFiles(files) {
     const p = parsed.find((x) => x.layer === l.id);
     const lname = p?.node.name || l.name;
     const hinted = ids.get(`package:${lname}`);
-    return { id: hinted && hinted !== rootId ? hinted : newId(), kind: 'package', name: lname, owner: rootId, layer: l.id, props: { idPrefix: '', doc: '' } };
+    return { id: hinted && hinted !== rootId ? hinted : newId(), kind: 'package', name: lname, owner: rootId, layer: l.id, props: { idPrefix: '', validation: '', doc: '' } };
   });
-  skel.loadRaw([{ id: rootId, kind: 'package', name, owner: null, props: { idPrefix: '', doc: '' } }, .../** @type {any[]} */ (layerEls)]);
+  skel.loadRaw([{ id: rootId, kind: 'package', name, owner: null, props: { idPrefix: '', validation: validationIn(proj.validation), doc: '' } }, .../** @type {any[]} */ (layerEls)]);
 
   const inputs = parsed.map((p) => ({ layerId: /** @type {string} */ (layerEls.find((l) => l.layer === p.layer)?.id), node: p.node, path: p.path }));
   let snap;
@@ -156,6 +163,7 @@ export function snapshotFromFiles(m, files) {
   try {
     const snap = buildSnapshot(m, inputs, { hint: (k) => /** @type {string | undefined} */ (ids.get(k)), layouts, preferLayouts: true });
     if (typeof proj.name === 'string' && proj.name.trim()) snap.elements[0].name = proj.name.trim().slice(0, 200);
+    snap.elements[0].props = { ...snap.elements[0].props, validation: validationIn(proj.validation) };
     return snap;
   } catch (e) {
     if (e instanceof TextError) throw new FileError(/** @type {any} */ (e).file || sysml[0], e.message, e.line, e.col);

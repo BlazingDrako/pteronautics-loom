@@ -7,6 +7,11 @@ import { canUseFolders } from '../storage/folderfs.js';
 import { analysisOf, addMissingParams, showVar, hasEquations } from '../analysis/solver.js';
 import { isUnit, parseUnit, dimName } from '../analysis/units.js';
 import { parseExpr, ExprError } from '../analysis/expr.js';
+import { appliedOf, applicableStereotypes, applyStereo, unapplyStereo, setTag, STEREO_TARGETS, stereoKinds, kindsText } from '../custom/stereo.js';
+import { canHaveStereo } from '../model/metamodel.js';
+import { configOf, ruleTitle, SEVERITIES } from '../validate/engine.js';
+import { RULE_SETS } from '../validate/rules.js';
+import { SEV_ICON, SEV_WORD } from './problems.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -21,6 +26,13 @@ import { parseExpr, ExprError } from '../analysis/expr.js';
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
  *   meta: () => { created: string, modified: string, folder?: { name: string, sig: string, synced: string } },
  *   open: (id: string) => void,
+ *   validator?: import('../validate/engine.js').Validator,
+ *   fix?: (p: import('../validate/engine.js').Problem) => void,
+ *   ignore?: (p: import('../validate/engine.js').Problem) => void,
+ *   openRules?: () => void,
+ *   openPrefs?: (tab?: 'look' | 'keys' | 'presets') => void,
+ *   create?: (kind: string, owner: string) => void,
+ *   newProfile?: () => void,
  * }} InspectorCtx
  */
 
@@ -149,6 +161,76 @@ export function createInspector(ctx) {
     });
   }
 
+  /** The stereotypes applied to an element, their tagged values, and a way to apply more. @param {Element} e */
+  function stereotypes(e) {
+    if (!canHaveStereo(e.kind) || e.layer) return null;
+    const m = ctx.model, n = ctx.settings.get().notation;
+    const info = appliedOf(m, e.id);
+    const can = applicableStereotypes(m, e.kind).filter((st) => !info.some((x) => x.st.id === st.id));
+    const any = m.byKind('stereotype').length > 0;
+    if (!info.length && !any && e.kind !== 'partDef' && e.kind !== 'requirement') return null;
+    let adder = null;
+    if (can.length) {
+      const sel = h('select', { class: 'field', 'aria-label': 'Apply a stereotype' }, h('option', { value: '' }, 'Apply a stereotype…'), can.map((st) => h('option', { value: st.id }, `«${st.name}»`)));
+      sel.addEventListener('change', () => { if (sel.value) ctx.edit('Apply stereotype', (tx) => applyStereo(m, tx, e.id, sel.value)); });
+      adder = sel;
+    } else if (!any) adder = h('p', { class: 'muted small' }, 'Make your own kinds of element (Flight critical, COTS, Software…) with a profile and stereotypes. ',
+      ctx.newProfile ? h('button', { class: 'linkish', type: 'button', onclick: () => ctx.newProfile?.() }, 'New profile') : null);
+    return [
+      h('div', { class: 'sec' }, `Stereotypes · ${info.length}`),
+      info.map(({ st, tags }) => h('div', { class: 'stereo-card' },
+        h('div', { class: 'stereo-head' },
+          st.props.icon ? h('span', { class: 'stereo-icon', 'aria-hidden': 'true' }, st.props.icon) : null,
+          h('button', { class: 'linkish stereo-name', type: 'button', title: `Go to the stereotype ${st.name}`, onclick: () => ctx.select(st.id) }, `«${st.name}»`),
+          st.props.color && st.props.color !== 'none' ? h('span', { class: `swatch fill-${st.props.color}`, 'aria-hidden': 'true' }) : null,
+          h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': `Remove «${st.name}»`, title: 'Remove this stereotype', onclick: () => ctx.edit(`Remove «${st.name}»`, (tx) => unapplyStereo(m, tx, e.id, st.id)) }, icon('x'))),
+        tags.map((t) => textField(t.tag.name + (t.tag.props.unit ? ` [${t.tag.props.unit}]` : ''), t.given ? t.value : '', (v) => ctx.edit(`Set ${t.tag.name}`, (tx) => setTag(m, tx, e.id, st.id, t.tag.id, v.trim())), { placeholder: String(t.tag.props.value || '') || 'no default', mono: true })),
+        !tags.length ? h('p', { class: 'muted small' }, `«${st.name}» has no tags.`) : null)),
+      adder,
+      info.length && n === 'guided' ? h('p', { class: 'muted small' }, 'Stereotypes are your own kinds: they change how this element looks and what you record about it, never what it is.') : null,
+    ];
+  }
+
+  /** A stereotype's own settings: what it applies to, its tags, where it is used. @param {Element} e */
+  function stereotypeEditor(e) {
+    const m = ctx.model, n = ctx.settings.get().notation;
+    const kinds = stereoKinds(e);
+    const toggle = (/** @type {string} */ k) => {
+      const next = kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k];
+      ctx.edit('Change what the stereotype applies to', (tx) => tx.setProps(e.id, { extends: STEREO_TARGETS.filter((x) => next.includes(x)).join(',') }));
+    };
+    const tags = m.children(e.id).filter((c) => c.kind === 'attribute');
+    const users = m.appliedTo(e.id);
+    return [
+      h('div', { class: 'sec' }, 'Applies to'),
+      h('div', { class: 'kind-picks', role: 'group', 'aria-label': 'Applies to' }, STEREO_TARGETS.map((k) => h('button', { class: 'kind-pick' + (kinds.includes(k) ? ' on' : ''), type: 'button', 'aria-pressed': String(kinds.includes(k)), onclick: () => toggle(k) }, kindName(k, n)))),
+      h('small', { class: 'muted small' }, kinds.length ? `«${e.name}» can be applied to ${kindsText(kinds, n).toLowerCase()}.` : 'Nothing picked: it can be applied to any element.'),
+      h('div', { class: 'sec' }, `Tags · ${tags.length}`),
+      tags.length ? h('div', { class: 'chips' }, tags.map((t) => h('button', { class: 'chip', type: 'button', title: t.name, onclick: () => ctx.select(t.id) }, h('span', { class: 'chip-kind mono' }, 'tag'), h('span', { class: 'chip-name' }, `${t.name}${t.props.value ? ` = ${t.props.value}` : ''}`))))
+        : h('p', { class: 'muted small' }, 'Tags are what you record on each element with this stereotype (an owner, a level). Their values here are the defaults.'),
+      ctx.create ? h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.create?.('attribute', e.id) }, icon('plus'), 'Add a tag') : null,
+      h('div', { class: 'sec' }, `Applied to · ${users.length}`),
+      users.length ? h('div', { class: 'chips' }, users.map((u) => h('button', { class: 'chip', type: 'button', title: u.name, onclick: () => ctx.select(u.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[u.kind].abbr), h('span', { class: 'chip-name' }, u.name))))
+        : h('p', { class: 'muted small' }, 'Not applied to anything yet. Select an element and apply it in its inspector.'),
+    ];
+  }
+
+  /** What the validation rules say about this element. @param {Element} e */
+  function problems(e) {
+    const list = ctx.validator?.problemsFor(e.id) || [];
+    if (!list.length) return null;
+    const cfg = configOf(ctx.model);
+    return [
+      h('div', { class: 'sec' }, `Problems · ${list.length}`),
+      list.map((p) => h('div', { class: `insp-prob sev-${p.severity}` },
+        h('span', { class: 'prob-ic', 'aria-label': p.severity }, icon(SEV_ICON[p.severity])),
+        h('div', { class: 'insp-prob-text' }, h('span', {}, p.message), h('small', {}, ruleTitle(cfg, p.rule))),
+        h('div', { class: 'insp-prob-acts' },
+          p.fix && ctx.fix ? h('button', { class: 'btn sm', type: 'button', title: p.fix.label, onclick: () => ctx.fix?.(p) }, icon('wand'), 'Fix') : null,
+          ctx.ignore ? h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Ignore this problem', title: 'Ignore this problem', onclick: () => ctx.ignore?.(p) }, icon('eyeOff')) : null))),
+    ];
+  }
+
   /** @param {Element} e */
   function relationships(e) {
     const m = ctx.model, n = ctx.settings.get().notation;
@@ -203,10 +285,13 @@ export function createInspector(ctx) {
       e.layer ? null : h('p', { class: 'help' }, ELEMENTS[e.kind].help),
       isDiagram(e.kind) ? h('button', { class: 'btn primary sm insp-open', type: 'button', onclick: () => ctx.open(e.id) }, icon('diagram'), 'Open diagram') : null,
       isDiagram(e.kind) ? h('div', { class: 'kv' }, h('span', {}, 'Shows'), h('span', { class: 'mono' }, `${Object.keys(e.layout?.nodes || {}).length} elements`)) : null,
+      problems(e),
       e.layer ? null : propFields(e),
+      e.kind === 'stereotype' ? stereotypeEditor(e) : null,
+      stereotypes(e),
       e.kind === 'requirement' ? reqStatus(e) : null,
       analysisInfo(e),
-      kids.length ? [h('div', { class: 'sec' }, `Contains · ${kids.length}`), h('div', { class: 'chips' }, kids.map((k) => h('button', { class: 'chip', type: 'button', title: k.name, onclick: () => ctx.select(k.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[k.kind].abbr), h('span', { class: 'chip-name' }, k.name))))] : null,
+      kids.length && e.kind !== 'stereotype' ? [h('div', { class: 'sec' }, `Contains · ${kids.length}`), h('div', { class: 'chips' }, kids.map((k) => h('button', { class: 'chip', type: 'button', title: k.name, onclick: () => ctx.select(k.id) }, h('span', { class: 'chip-kind mono' }, ELEMENTS[k.kind].abbr), h('span', { class: 'chip-name' }, k.name))))] : null,
       e.layer || isDiagram(e.kind) ? null : relationships(e),
       (() => {
         const ds = m.diagramsShowing(e.id);
@@ -250,10 +335,31 @@ export function createInspector(ctx) {
       h('div', { class: 'field-label' }, 'Notation',
         h('div', { class: 'seg seg-full', role: 'group', 'aria-label': 'Notation' }, notBtn('sysml', 'SysML'), notBtn('v2', 'SysML v2'), notBtn('guided', 'Guided')),
         h('small', {}, notes[st.notation])),
+      validationInfo(),
+      h('div', { class: 'sec' }, 'Customize'),
+      h('div', { class: 'insp-actions' },
+        h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.openPrefs?.('look') }, icon('palette'), 'Appearance'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.openPrefs?.('keys') }, icon('keyboard'), 'Shortcuts'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.openPrefs?.('presets') }, icon('eye'), 'View presets')),
+      ctx.newProfile ? h('div', { class: 'insp-actions' }, h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.newProfile?.() }, icon('tag'), 'New profile (your own stereotypes)')) : null,
       h('div', { class: 'sec' }, 'Integrations'),
       h('div', { class: 'opt' },
         h('span', {}, 'Pteronautics Works', h('small', {}, st.integrations.works ? 'On · values and analyses from Works' : 'Off · Loom runs on its own')),
         h('button', { class: 'switch', type: 'button', role: 'switch', 'aria-checked': String(st.integrations.works), 'aria-label': 'Link Pteronautics Works', onclick: () => ctx.commands.run('integrations.works') })),
+    ];
+  }
+
+  /** The project's validation: rule set and counts. */
+  function validationInfo() {
+    if (!ctx.validator) return null;
+    const r = ctx.validator.report(), cfg = configOf(ctx.model);
+    return [
+      h('div', { class: 'sec' }, 'Validation'),
+      h('div', { class: 'kv' }, h('span', {}, 'Rule set'), h('span', {}, RULE_SETS.find((x) => x.id === cfg.set)?.name || cfg.set, Object.keys(cfg.rules).length || cfg.custom.length ? h('span', { class: 'muted' }, ' (changed)') : null)),
+      h('div', { class: 'kv' }, h('span', {}, 'Problems'), h('span', { class: 'prob-sum' }, SEVERITIES.map((sv) => h('span', { class: `sev-${sv}` }, icon(SEV_ICON[sv]), `${r.counts[sv]} ${r.counts[sv] === 1 ? SEV_WORD[sv][0] : SEV_WORD[sv][1]}`)))),
+      h('div', { class: 'insp-actions' },
+        h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.commands.run('view.problems') }, icon('list'), ctx.settings.get().problems ? 'Hide problems' : 'Show problems'),
+        h('button', { class: 'btn sm', type: 'button', onclick: () => ctx.openRules?.() }, icon('sliders'), 'Rules…')),
     ];
   }
 

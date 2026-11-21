@@ -4,7 +4,7 @@
 //
 // Project folders are saved as SysML v2 text (see src/storage/folder.js); this JSON form is
 // the fast local snapshot (IndexedDB) and the single-file .loom.json export.
-import { createModel, ModelError } from './model.js';
+import { createModel, ModelError, stereoApplies } from './model.js';
 import { ELEMENTS, RELATIONSHIPS, isRel, canOwnKind, canRelate, defaultProps, isDiagram } from './metamodel.js';
 import { isId } from './ids.js';
 import { isLayoutKey, keyIds, FRAME } from './paths.js';
@@ -59,6 +59,13 @@ export function restore(data) {
   if (roots !== 1) throw new ModelError('A model must have exactly one root package');
   for (const e of list) {
     for (const [k, p] of Object.entries(ELEMENTS[e.kind].props)) {
+      if (p.type === 'stereo' && e.props[k]) {
+        // stereotypes that are missing, or do not apply to this kind, are dropped; so are unknown tags
+        const ok = /** @type {import('./metamodel.js').Applied[]} */ (e.props[k]).filter((a, i, all) => { const st = seen.get(a.s); return st && st.kind === 'stereotype' && stereoApplies(st, e.kind) && all.findIndex((b) => b.s === a.s) === i; })
+          .map((a) => { if (!a.tags) return a; const tags = Object.fromEntries(Object.entries(a.tags).filter(([t]) => { const te = seen.get(t); return te && te.kind === 'attribute' && te.owner === a.s; })); return Object.keys(tags).length ? { s: a.s, tags } : { s: a.s }; });
+        e.props[k] = ok.length ? ok : null;
+        continue;
+      }
       if (p.type !== 'ref' || e.props[k] === null) continue;
       const t = seen.get(e.props[k]);
       if (!t || !p.kinds.includes(t.kind)) e.props[k] = null; // a dangling reference is cleared, not fatal
@@ -107,6 +114,7 @@ function cleanElement(raw) {
     if (p.type === 'bool') props[k] = v === true;
     else if (p.type === 'enum') props[k] = p.options.includes(v) ? v : p.default;
     else if (p.type === 'ref') props[k] = isId(v) ? v : null;
+    else if (p.type === 'stereo') props[k] = cleanApplied(v);
     else if (p.type === 'end') props[k] = v && Array.isArray(v.path) && v.path.length <= 32 && v.path.every(isId) && (v.port === null || v.port === undefined || isId(v.port)) ? { path: [...v.path], port: v.port ?? null } : null;
     else props[k] = String(v).slice(0, 20000);
   }
@@ -116,6 +124,21 @@ function cleanElement(raw) {
   const e = layer ? { id: raw.id, kind: raw.kind, name, owner, layer, props } : { id: raw.id, kind: raw.kind, name, owner, props };
   if (isDiagram(raw.kind)) e.layout = { nodes: cleanLayout(raw.layout?.nodes) };
   return e;
+}
+
+/** Applied stereotypes: a short list of { s: id, tags: { id: text } }. @param {any} v @returns {import('./metamodel.js').Applied[] | null} */
+function cleanApplied(v) {
+  if (!Array.isArray(v)) return null;
+  /** @type {import('./metamodel.js').Applied[]} */
+  const out = [];
+  for (const a of v.slice(0, 64)) {
+    if (!a || typeof a !== 'object' || !isId(a.s)) continue;
+    /** @type {Record<string, string>} */
+    const tags = {};
+    if (a.tags && typeof a.tags === 'object') for (const [t, val] of Object.entries(a.tags).slice(0, 200)) if (isId(t) && (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean')) tags[t] = String(val).slice(0, 2000);
+    out.push(Object.keys(tags).length ? { s: a.s, tags } : { s: a.s });
+  }
+  return out.length ? out : null;
 }
 
 /** Keep only well-formed rectangles. @param {any} nodes @returns {Record<string, import('./model.js').Rect>} */

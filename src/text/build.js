@@ -6,9 +6,9 @@
 //   1. same owner, kind and name;  2. same kind and name anywhere in the layer (it moved);
 //   3. same owner and kind, in order (it was renamed);  4. a saved id for its qualified name
 //   (when opening a folder);  otherwise a new id.
-import { ELEMENTS, RELATIONSHIPS, canOwnKind, canRelate, defaultProps, isDiagram, isRel, kindName, DIAGRAM_KINDS } from '../model/metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, canOwnKind, canRelate, defaultProps, isDiagram, isRel, kindName, DIAGRAM_KINDS, canHaveStereo } from '../model/metamodel.js';
 import { snapshot, MODEL_FORMAT, FORMAT_VERSION } from '../model/serialize.js';
-import { ModelError } from '../model/model.js';
+import { ModelError, stereoApplies, appliesText } from '../model/model.js';
 import { newId } from '../model/ids.js';
 import { TextError, parse } from './parser.js';
 import { resolve, targetKinds, TYPE_KINDS, relKey } from './names.js';
@@ -109,13 +109,13 @@ export function buildSnapshot(base, inputs, o = {}) {
   function propsOf(n, kind, prev) {
     const props = defaultProps(kind);
     // keep references for now; they are re-resolved from the text in the second pass
-    if (prev) for (const [k, spec] of Object.entries(ELEMENTS[kind].props)) if (spec.type === 'ref' || spec.type === 'end') props[k] = null;
+    if (prev) for (const [k, spec] of Object.entries(ELEMENTS[kind].props)) if (spec.type === 'ref' || spec.type === 'end' || spec.type === 'stereo') props[k] = null;
     const spec = ELEMENTS[kind].props;
     for (const m of n.meta) {
       if (m.key === 'layer' || (m.key === 'kind' && isDiagram(kind))) continue;
       const key = kind === 'requirement' && m.key === 'rationale' ? 'doc' : m.key;
       const p = spec[key];
-      if (!p || p.type === 'ref' || p.type === 'end' || (kind === 'requirement' && key === 'text')) throw new BuildError(`A ${kindName(kind, 'sysml').toLowerCase()} has no Loom property "${m.key}"`, m.line, m.col);
+      if (!p || p.type === 'ref' || p.type === 'end' || p.type === 'stereo' || (kind === 'requirement' && key === 'text')) throw new BuildError(`A ${kindName(kind, 'sysml').toLowerCase()} has no Loom property "${m.key}"`, m.line, m.col);
       if (p.type === 'bool') { if (typeof m.value !== 'boolean') throw new BuildError(`${m.key} must be true or false`, m.line, m.col); props[key] = m.value; }
       else if (p.type === 'enum') { if (!p.options.includes(String(m.value))) throw new BuildError(`${m.key} must be one of: ${p.options.join(', ')}`, m.line, m.col); props[key] = String(m.value); }
       else { if (typeof m.value === 'boolean') throw new BuildError(`${m.key} must be text in quotes`, m.line, m.col); props[key] = String(m.value); }
@@ -252,6 +252,26 @@ export function buildSnapshot(base, inputs, o = {}) {
     }
     for (const sp of n.spec) addRel('generalize', id, find(sp, id, targetKinds('generalize')), sp);
     for (const r of n.rels) addRel(r.kind, id, find(r.ref, id, targetKinds(r.kind)), { line: r.line, col: r.ref.col });
+    if (n.applied?.length) {
+      if (!canHaveStereo(e.kind)) throw new BuildError(`A ${kindName(e.kind, 'sysml').toLowerCase()} cannot have stereotypes`, n.applied[0].ref.line, n.applied[0].ref.col);
+      /** @type {import('../model/metamodel.js').Applied[]} */
+      const list = [];
+      for (const a of n.applied) {
+        const sid = find(a.ref, id, ['stereotype']);
+        const st = /** @type {Element} */ (els.get(sid));
+        if (!stereoApplies(st, e.kind)) throw new BuildError(`«${st.name}» cannot be applied to a ${kindName(e.kind, 'sysml').toLowerCase()}: it applies to ${appliesText(st)}`, a.ref.line, a.ref.col);
+        if (list.some((x) => x.s === sid)) throw new BuildError(`«${st.name}» is applied twice`, a.ref.line, a.ref.col);
+        /** @type {Record<string, string>} */
+        const tags = {};
+        for (const tg of a.tags) {
+          const def = tree.children(sid).find((c) => c.kind === 'attribute' && c.name === tg.key);
+          if (!def) throw new BuildError(`«${st.name}» has no tag named ${tg.key}`, tg.line, tg.col);
+          tags[def.id] = tg.value;
+        }
+        list.push(Object.keys(tags).length ? { s: sid, tags } : { s: sid });
+      }
+      e.props.applied = list;
+    }
     if (e.kind === 'connector') {
       e.props.end1 = endOf(/** @type {any} */ (n.end1), /** @type {string} */ (e.owner));
       e.props.end2 = endOf(/** @type {any} */ (n.end2), /** @type {string} */ (e.owner));
@@ -344,7 +364,7 @@ export function applySnapshot(m, snap, label) {
   /** Children in order, per owner. @type {Map<string, string[]>} */
   const order = new Map();
   for (const e of snap.elements) if (e.owner) (order.get(e.owner) || order.set(e.owner, []).get(e.owner))?.push(e.id);
-  const plain = (/** @type {Element} */ e) => Object.fromEntries(Object.entries(e.props).filter(([k]) => { const p = ELEMENTS[e.kind].props[k]; return p && p.type !== 'ref' && p.type !== 'end'; }));
+  const plain = (/** @type {Element} */ e) => Object.fromEntries(Object.entries(e.props).filter(([k]) => { const p = ELEMENTS[e.kind].props[k]; return p && p.type !== 'ref' && p.type !== 'end' && p.type !== 'stereo'; }));
   m.transact(label, (tx) => {
     // 1. new elements, without references (their targets may not exist yet)
     for (const e of snap.elements) {

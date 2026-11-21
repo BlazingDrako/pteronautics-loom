@@ -54,7 +54,7 @@ export async function textTests(log) {
     ['package P { part def A { } ', 'Expected'],
     ['package P { gizmo X; }', 'Unknown element'],
     ['package P { part x : ; }', 'Expected a name'],
-    ['package P { @Other { a = 1; } }', 'Only @Loom'],
+    ['package P { @Other { a 1; } }', 'Expected "="'],
     ['package P { } }', 'without a matching'],
   ];
   const got = errs.map(([src, want]) => { const e = textError(() => parse(src)); return !!e && e.message.includes(want) && e.line === 1; });

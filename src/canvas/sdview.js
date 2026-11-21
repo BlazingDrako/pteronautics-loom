@@ -7,6 +7,7 @@
 //   Drag a lifeline's head left or right to reorder lifelines.
 //   Double-click a message or a head to rename it. Delete removes the selection.
 import { h, s, icon, toast } from '../ui/dom.js';
+import { worst } from '../validate/engine.js';
 import { popupMenu } from '../ui/menu.js';
 import { ellipsize, FONTS, textWidth } from './measure.js';
 import { kindName } from '../model/metamodel.js';
@@ -91,6 +92,8 @@ export function sdLayout(m, interactionId) {
  *   selected: () => string | null,
  *   select: (id: string | null) => void,
  *   edit: (label: string, fn: (tx: any) => void) => boolean,
+ *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
+ *   showProblems?: (id: string) => void,
  * }} ctx
  */
 export function createSequenceView(ctx) {
@@ -198,6 +201,19 @@ export function createSequenceView(ctx) {
       out.push(`<g class="sd-msg ${kind}${run ? ' run-' + run : ''}${on ? ' sel' : ''}" data-id="${msg.el.id}"><path class="sd-hit" d="${path}"/><path class="sd-line" d="${path}"/>${head}`
         + `<text class="sd-label" x="${lx}" y="${msg.y - 7}" text-anchor="${self ? 'start' : 'middle'}">${esc(ellipsize(msg.el.name, maxW, FONTS.label))}</text></g>`);
     }
+    // problem badges: on lifeline heads, and beside message names
+    const badge = (/** @type {string} */ id, /** @type {number} */ bx, /** @type {number} */ by) => {
+      const probs = ctx.problemsFor?.(id) || [];
+      if (!probs.length) return;
+      out.push(`<g class="pbadge sev-${worst(probs)}" data-badge="${esc(id)}" transform="translate(${bx} ${by})"><title>${esc(probs.map((p) => p.message).join('\n'))}</title><circle r="8.5"/><text y="3.5">${probs.length > 9 ? '9+' : probs.length}</text></g>`);
+    };
+    L.lifelines.forEach((l, i) => badge(l.id, /** @type {number} */ (L?.x.get(l.id)) + /** @type {number} */ (L?.widths[i]) / 2 - 9, HEAD_Y + 3));
+    for (const msg of L.messages) {
+      const self = msg.from === msg.to;
+      const lx = self ? msg.from + 52 : (msg.from + msg.to) / 2;
+      const tw = Math.min(self ? 220 : Math.max(60, Math.abs(msg.to - msg.from) - 16), textWidth(msg.el.name, FONTS.label));
+      badge(msg.el.id, self ? lx + tw + 12 : lx + tw / 2 + 12, msg.y - 11);
+    }
     if (drag?.mode === 'message') out.push(`<path class="link-ghost" d="M${L.x.get(drag.from)} ${drag.y} L${drag.x} ${drag.y}"/>`);
     if (ghostSlot) out.push(`<line class="sd-slot" x1="20" x2="${L.width - 20}" y1="${ghostSlot.y}" y2="${ghostSlot.y}"/>`);
     svg.innerHTML = out.join('');
@@ -294,6 +310,7 @@ export function createSequenceView(ctx) {
     if (ev.button !== 0 || ev.target instanceof HTMLInputElement) return;
     stage.focus({ preventScroll: true });
     const t = /** @type {Element} */ (ev.target), p = point(ev);
+    if (t.closest('[data-badge]') && ctx.showProblems) { ctx.showProblems(/** @type {string} */ (/** @type {SVGElement} */ (t.closest('[data-badge]')).dataset.badge)); return; }
     const head = t.closest('[data-head]'), life = t.closest('[data-life]'), item = t.closest('[data-id]');
     if (head) { const id = /** @type {string} */ (/** @type {SVGElement} */ (head).dataset.head); ctx.select(id); drag = { mode: 'head', id, x: p.x, moved: false }; }
     else if (item && model.get(/** @type {string} */ (/** @type {SVGElement} */ (item).dataset.id))?.kind === 'message') { const id = /** @type {string} */ (/** @type {SVGElement} */ (item).dataset.id); ctx.select(id); drag = { mode: 'move', id, y: p.y, moved: false }; }

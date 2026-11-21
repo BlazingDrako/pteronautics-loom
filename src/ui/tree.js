@@ -4,6 +4,8 @@
 import { h, icon } from './dom.js';
 import { popupMenu } from './menu.js';
 import { ELEMENTS, LAYERS, kindName, childKinds, isRel, isDiagram } from '../model/metamodel.js';
+import { stereoIcon, stereoNames } from '../custom/stereo.js';
+import { worst } from '../validate/engine.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -19,6 +21,7 @@ import { ELEMENTS, LAYERS, kindName, childKinds, isRel, isDiagram } from '../mod
  *   move: (id: string, owner: string) => boolean,
  *   remove: (id: string) => void,
  *   open: (id: string) => void,
+ *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  * }} TreeCtx
  */
 
@@ -51,13 +54,19 @@ export function createTree(ctx) {
       tabindex: sel || (!ctx.selected() && isLayer && e.layer === 'r') ? '0' : '-1',
       'data-id': e.id, draggable: isLayer ? undefined : 'true',
       style: { '--depth': String(depth) },
-      title: isLayer ? undefined : `${e.name} · ${kindName(e.kind, n)}`,
+      title: isLayer ? undefined : `${e.name} · ${kindName(e.kind, n)}${stereoNames(ctx.model, e.id).length ? ` «${stereoNames(ctx.model, e.id).join(', ')}»` : ''}`,
     },
     h('span', { class: 'twisty' + (kids.length ? '' : ' none'), 'aria-hidden': 'true', onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); toggle(e.id); } }, kids.length ? icon(open ? 'chevDown' : 'chevRight') : null),
     isLayer
       ? h('span', { class: 'layer-dot', style: { background: LAYER_COLOR[/** @type {string} */ (e.layer)] } })
       : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : 'var(--text-2)' } }, ELEMENTS[e.kind].abbr),
-    renaming === e.id ? renameInput(e) : h('span', { class: 'ti-name' }, e.name),
+    renaming === e.id ? renameInput(e) : h('span', { class: 'ti-name' }, stereoIcon(ctx.model, e.id) ? h('span', { class: 'ti-icon', 'aria-hidden': 'true' }, stereoIcon(ctx.model, e.id)) : null, e.name),
+    (() => {
+      // the worst problem here, or (folded) inside
+      const own = ctx.problemsFor?.(e.id) || [];
+      const sev = worst(own);
+      return sev ? h('span', { class: `ti-prob sev-${sev}`, title: own.map((p) => p.message).join('\n'), 'aria-label': `${own.length} problem${own.length === 1 ? '' : 's'}` }) : null;
+    })(),
     isLayer && kids.length ? h('span', { class: 'ti-count mono' }, String(countDeep(e.id))) : null,
     childKinds(e.kind).length && renaming !== e.id ? h('button', { class: 'ti-add', type: 'button', tabindex: '-1', 'aria-label': `Add inside ${e.name}`, title: 'Add inside',
       onclick: (/** @type {Event} */ ev) => { ev.stopPropagation(); addMenu(/** @type {HTMLElement} */ (ev.currentTarget), e); } }, icon('plus')) : null);
