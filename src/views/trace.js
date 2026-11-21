@@ -38,9 +38,13 @@ export const METRICS = /** @type {const} */ ([
 export function laneCards(m) {
   /** @type {Record<string, { el: Element, depth: number }[]>} */
   const out = { r: [], f: [], l: [], p: [] };
-  for (const layer of m.layers()) {
-    const lane = LANES.find((l) => l.layer === layer.layer);
-    if (!lane) continue;
+  const layers = m.layers();
+  for (const lane of LANES) {
+    // functions are gathered from every layer but requirements (see functionsOf); the
+    // functional layer's own come first
+    const roots = lane.layer === 'f'
+      ? [...layers.filter((l) => l.layer === 'f'), ...layers.filter((l) => l.layer !== 'f' && l.layer !== 'r')]
+      : layers.filter((l) => l.layer === lane.layer);
     /** @param {string} id @param {number} depth */
     const walk = (id, depth) => {
       for (const c of m.children(id)) {
@@ -49,7 +53,7 @@ export function laneCards(m) {
         if (c.kind === 'package' || shows) walk(c.id, shows ? depth + 1 : depth);
       }
     };
-    walk(layer.id, 0);
+    for (const root of roots) walk(root.id, 0);
   }
   return out;
 }

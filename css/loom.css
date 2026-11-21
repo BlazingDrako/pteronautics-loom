@@ -872,10 +872,10 @@ textarea.tinput { position: absolute; left: 3px; top: 3px; width: calc(100% - 6p
 .tpal-grow { flex: 1; min-height: 6px; }
 .tpal-toggle { color: var(--text-3); min-height: 28px; }
 .tpal-toggle svg { width: 15px; height: 15px; }
-.tcard { position: fixed; z-index: 70; text-align: left; max-width: 260px; padding: 8px 11px; border-radius: 9px; background: var(--bg-elev); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg); font-size: 12px; color: var(--text-2); pointer-events: none; display: flex; flex-direction: column; gap: 3px; line-height: 1.4; }
-.tcard[hidden] { display: none; }
-.tcard b { color: var(--text); font-size: 12.5px; }
-.tcard small { color: var(--text-3); font-size: 11px; }
+.tooltip-card { position: fixed; z-index: 70; text-align: left; max-width: 260px; padding: 8px 11px; border-radius: 9px; background: var(--bg-elev); border: 1px solid var(--border-strong); box-shadow: var(--shadow-lg); font-size: 12px; color: var(--text-2); pointer-events: none; display: flex; flex-direction: column; gap: 3px; line-height: 1.4; }
+.tooltip-card[hidden] { display: none; }
+.tooltip-card b { color: var(--text); font-size: 12.5px; }
+.tooltip-card small { color: var(--text-3); font-size: 11px; }
 .tool-chip { position: absolute; top: 10px; left: 56px; z-index: 5; display: flex; gap: 4px; align-items: center; max-width: calc(100% - 72px); padding: 5px 11px; border-radius: 99px; background: var(--bg-elev); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); box-shadow: var(--shadow); font-size: 12px; color: var(--text-2); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-chip[hidden] { display: none; }
 .tool-chip b { color: var(--accent); }
@@ -1212,7 +1212,44 @@ textarea.tinput { position: absolute; left: 3px; top: 3px; width: calc(100% - 6p
 .lib-search { margin: 12px; width: auto; }
 .lib-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 20px; }
 .lib-cat .sec { margin: 14px 6px 4px; }
-.lib-item { display: block; width: 100%; text-align: left; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-item { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.lib-item-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-ico { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; color: var(--text-3); }
+.lib-ico svg { width: 16px; height: 16px; }
+.lib-item.on .lib-ico, .lib-item:hover .lib-ico { color: var(--accent); }
+.lib-fig { margin: 14px 0 18px; padding: 16px 16px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elev); box-shadow: var(--shadow); }
+.lib-svg { display: block; width: 100%; height: auto; max-height: 300px; overflow: visible; font-family: var(--font); }
+.lib-fig figcaption { margin-top: 10px; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.lib-svg .f-t { fill: var(--text); }
+.lib-svg .f-b { font-weight: 600; }
+.lib-svg .f-s { fill: var(--text-3); }
+.lib-svg .f-i { font-style: italic; }
+.lib-svg .f-mono { font-family: var(--mono); }
+.lib-svg .f-warn { fill: var(--warn); }
+.lib-svg .f-hot-t { fill: var(--accent); }
+.lib-svg .f-box { fill: var(--bg-elev); stroke: var(--text-3); stroke-width: 1.2; }
+.lib-svg .f-tint { fill: color-mix(in srgb, currentColor 10%, var(--bg-elev)); stroke: currentColor; stroke-width: 1.4; }
+.lib-svg .f-hotbox { stroke: var(--accent); stroke-width: 2.2; }
+.lib-svg .f-note { fill: color-mix(in srgb, var(--warn) 8%, var(--bg-elev)); }
+.lib-svg .f-line { fill: none; stroke: var(--text-2); stroke-width: 1.3; stroke-linejoin: round; }
+.lib-svg .f-thin { stroke: var(--border-strong); stroke-width: 1; }
+.lib-svg .f-hot { stroke: var(--accent); stroke-width: 2; }
+.lib-svg .f-ring { stroke-width: 1.6; }
+.lib-svg .f-solid { fill: var(--text-2); }
+.lib-svg .f-frame { fill: none; stroke: var(--border-strong); stroke-width: 1.2; }
+.lib-svg .f-code { fill: var(--bg-sunk); stroke: var(--border); }
+.lib-svg .f-head { fill: var(--bg-sunk); }
+.lib-svg .f-cell { fill: none; stroke: var(--border); }
+.lib-svg .f-gaprow { fill: color-mix(in srgb, var(--warn) 9%, transparent); stroke: none; }
+.lib-svg .f-track { fill: var(--bg-sunk); }
+.lib-svg .f-chip { fill: color-mix(in srgb, currentColor 14%, var(--bg-elev)); stroke: color-mix(in srgb, currentColor 40%, transparent); }
+.lib-svg .f-vpath { fill: none; stroke: var(--border-strong); stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; opacity: .5; }
+.lib-svg .f-mk { fill: none; stroke: var(--text-2); stroke-width: 1.3; stroke-linejoin: round; }
+.lib-svg .f-mk-a { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+.lib-svg .f-mk-hollow, .lib-svg .f-mk.f-mk-hollow-a { fill: var(--bg-elev); }
+.lib-svg .f-mk-fill { fill: var(--text-2); }
+.lib-svg .f-mk.f-mk-fill-a { fill: var(--accent); stroke: var(--accent); }
+.lib-svg .f-mk.f-mk-hollow-a { stroke: var(--accent); }
 .lib-item:hover { background: var(--bg-sunk); color: var(--text); }
 .lib-item.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
 .lib-none { padding: 8px; }

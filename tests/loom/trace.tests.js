@@ -167,6 +167,18 @@ export function traceTests(log) {
   log('Lane lines join different lanes only, earlier lane first', ll.length > 5 && ll.every((l) => k.layerOf(l.a) !== k.layerOf(l.b)) && ll.some((l) => l.a === by('Usable energy').id && l.b === by('Battery Pack').id));
   log('Gaps: an unallocated function and an unsatisfied requirement', isGap(cov, by('Generate lift')) && isGap(cov, by('Endurance'), 'satisfied') === false && isGap(cov, by('Payload capacity'), 'passed'));
 
+  // functions kept outside the functional layer (as Cameo imports often do) still count
+  const im = createModel();
+  const [, , IL] = im.layers().map((l) => l.id);
+  im.transact('Imported', (tx) => {
+    const pk = tx.create('package', { owner: IL, name: '3 Logical' });
+    const fn = tx.create('action', { owner: pk, name: 'Unlock fins' });
+    tx.create('action', { owner: fn, name: 'Validate command' });
+    tx.create('partDef', { owner: pk, name: 'Lock Mechanism' });
+  });
+  const il = laneCards(im);
+  log('Functions kept in another layer show in the functional lane, not as blocks', il.f.length === 2 && il.f[1].depth === 1 && il.l.length === 1 && coverage(im).functions.total === 2);
+
   // ---------- Systems V ----------
   const stages = vStages(k, cov);
   log('The V has nine stages, four paired across', stages.length === 9 && stages.filter((x) => x.pair).every((x) => stages.find((y) => y.id === x.pair)?.pair === x.id));

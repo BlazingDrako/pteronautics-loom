@@ -1,7 +1,7 @@
 // The project workspace: the model browser (resizable, or hidden), tabs (the open views and
 // diagrams), the floating properties panel, the project menu and the status bar.
 import { h, icon, brandMark, formatKeys, toast } from './dom.js';
-import { createTree } from './tree.js';
+import { createTree, kindBadge } from './tree.js';
 import { createPropsPanel } from './props.js';
 import { openFrameworkDialog } from './framework.js';
 import { frameworkOf, roleNote, addSet, setColor } from '../model/framework.js';
@@ -698,7 +698,7 @@ export function mountWorkspace(root, ctx) {
         h('p', { class: 'lcard-note' }, info.note),
         kids.length
           ? h('ul', { class: 'lcard-list' }, kids.slice(0, 6).map((k) => h('li', {}, h('button', { type: 'button', class: 'lcard-item' + (selected === k.id ? ' sel' : ''), title: k.name, onclick: () => select(k.id) },
-            h('span', { class: 'kbadge' }, ELEMENTS[k.kind].abbr), h('span', { class: 'lcard-name' }, k.name)))),
+            kindBadge(k, info.color, n), h('span', { class: 'lcard-name' }, k.name)))),
           kids.length > 6 ? h('li', { class: 'muted small' }, `and ${kids.length - 6} more`) : null)
           : h('p', { class: 'lcard-empty' }, 'Empty'),
         h('button', { class: 'btn sm lcard-add', type: 'button', 'aria-haspopup': 'menu',

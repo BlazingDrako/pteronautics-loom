@@ -43,7 +43,17 @@ const LAYER_COLOR = Object.fromEntries(LAYERS.map((l) => [l.id, l.color]));
 /** The colors a set of your own can have. */
 const FILL_HUE = SET_HUE;
 /** The icon a diagram, table or matrix shows in the browser, so views stand apart from elements. */
-const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
+export const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
+/**
+ * The badge in front of an element's name: a diagram's symbol, or the element's short kind.
+ * Shared by the model browser and the model overview so the two always look alike.
+ * @param {Element} e @param {string} color @param {import('../model/metamodel.js').Notation} n
+ */
+export function kindBadge(e, color, n) {
+  return isDiagram(e.kind)
+    ? h('span', { class: 'ti-dicon', title: kindName(e.kind, n), style: { color } }, toolIcon(DIAGRAM_ICON[e.kind] || 'block'))
+    : h('span', { class: 'kbadge', style: { color } }, ELEMENTS[e.kind].abbr);
+}
 /** Elements drawn as lines on diagrams: listed in the browser only when asked for. */
 export const LINE_KINDS = new Set(['flow', 'transition', 'connector', 'binding']);
 /** How far the pointer moves before a press becomes a drag. */
@@ -94,9 +104,7 @@ export function createTree(ctx) {
     h('span', { class: 'twisty' + (kids.length ? '' : ' none'), 'aria-hidden': 'true', 'data-twisty': '' }, kids.length ? icon(open ? 'chevDown' : 'chevRight') : null),
     isLayer
       ? h('span', { class: 'layer-dot' + (e.layer ? '' : ' own'), style: { background: setColor }, title: e.layer ? undefined : 'A set of your own' })
-      : isDiagram(e.kind)
-        ? h('span', { class: 'ti-dicon', title: kindName(e.kind, n), style: { color: layer ? LAYER_COLOR[layer] : ownSetColor(e) } }, toolIcon(DIAGRAM_ICON[e.kind] || 'block'))
-        : h('span', { class: 'kbadge', style: { color: layer ? LAYER_COLOR[layer] : ownSetColor(e) } }, ELEMENTS[e.kind].abbr),
+      : kindBadge(e, layer ? LAYER_COLOR[layer] : ownSetColor(e), n),
     renaming === e.id ? renameInput(e) : h('span', { class: 'ti-name' + (hits.has(e.id) ? ' hit' : '') }, stereoIcon(m, e.id) ? h('span', { class: 'ti-icon', 'aria-hidden': 'true' }, stereoIcon(m, e.id)) : null, e.name),
     (() => {
       // the worst problem on this element

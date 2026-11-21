@@ -5,11 +5,27 @@ import { h, icon } from '../ui/dom.js';
 import { entries, CATEGORIES, entryForKind } from '../library/entries.js';
 import { kindName, ELEMENTS, RELATIONSHIPS } from '../model/metamodel.js';
 import { fuzzy } from '../ui/fuzzy.js';
+import { figureFor } from '../library/figures.js';
+import { toolIcon, symbolFor } from '../canvas/tools.js';
+import { DIAGRAM_ICON } from '../ui/tree.js';
 
 /** @param {string} q @param {string} t */
 const fuzzyScore = (q, t) => fuzzy(q, t)?.score ?? null;
 
 /** @typedef {import('../library/entries.js').Entry} Entry */
+
+/** Palette symbols for kinds drawn as lines. */
+const LINE_SYMBOL = /** @type {Record<string, string>} */ ({ flow: 'control', transition: 'transition', message: 'sync', connector: 'connector', binding: 'bind', participate: 'participate' });
+/** The symbol shown beside an entry in the list: its SysML symbol, or a book for articles. @param {Entry} e */
+function entryIcon(e) {
+  const k = e.kind;
+  if (!k) return icon('book');
+  if (k in DIAGRAM_ICON) return toolIcon(DIAGRAM_ICON[k]);
+  if (k in LINE_SYMBOL) return toolIcon(LINE_SYMBOL[k]);
+  if (k in RELATIONSHIPS) return toolIcon(k);
+  if (k === 'stereotype' || k === 'profile') return toolIcon(k === 'profile' ? 'package' : 'block');
+  return toolIcon(symbolFor(k));
+}
 
 const ALL = entries();
 const BY_ID = new Map(ALL.map((e) => [e.id, e]));
@@ -60,7 +76,7 @@ export function createLibraryView(ctx) {
   }
   /** @param {Entry} e */
   function item(e) {
-    return h('button', { class: 'lib-item' + (e.id === current ? ' on' : ''), type: 'button', 'aria-current': e.id === current ? 'page' : undefined, onclick: () => open(e.id), title: e.summary }, e.kind && e.names ? e.names[ctx.notation()] : e.title);
+    return h('button', { class: 'lib-item' + (e.id === current ? ' on' : ''), type: 'button', 'aria-current': e.id === current ? 'page' : undefined, onclick: () => open(e.id), title: e.summary }, h('span', { class: 'lib-ico', 'aria-hidden': 'true' }, entryIcon(e)), h('span', { class: 'lib-item-t' }, e.kind && e.names ? e.names[ctx.notation()] : e.title));
   }
 
   /** Text with paragraphs, bullets and `code`. @param {string} text */
@@ -83,6 +99,7 @@ export function createLibraryView(ctx) {
       h('h2', {}, e.kind && e.names ? e.names[n] : e.title),
       h('p', { class: 'lib-summary' }, e.summary),
       e.names ? h('div', { class: 'lib-names' }, h('span', {}, h('b', {}, 'SysML '), e.names.sysml), h('span', {}, h('b', {}, 'SysML v2 '), h('code', {}, e.names.v2)), h('span', {}, h('b', {}, 'Guided '), e.names.guided)) : null,
+      (() => { const f = figureFor(e); return f ? h('figure', { class: 'lib-fig' }, f.svg, h('figcaption', {}, f.caption)) : null; })(),
       prose(e.body),
       e.syntax ? [h('div', { class: 'sec' }, 'In SysML v2 text'), h('pre', { class: 'lib-code' }, e.syntax)] : null,
       e.kind ? [h('div', { class: 'sec' }, `In this model · ${inModel.length}`),

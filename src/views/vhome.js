@@ -5,7 +5,7 @@
 // what is done and what is missing, each one click from the element itself.
 import { h, s, icon } from '../ui/dom.js';
 import { ELEMENTS, LAYERS, kindName } from '../model/metamodel.js';
-import { coverage, pct, subRequirements, inLayer } from '../model/trace.js';
+import { coverage, pct, subRequirements, inLayer, functionsOf } from '../model/trace.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../model/model.js').Element} Element */
@@ -38,7 +38,7 @@ export function vStages(m, cov = coverage(m)) {
     };
   };
   const needs = cov.byLevel.Need, sys = cov.byLevel.System, sub = cov.byLevel.Subsystem, comp = cov.byLevel.Component;
-  const fns = inLayer(m, 'action', 'f');
+  const fns = functionsOf(m);
   const physical = inLayer(m, 'partDef', 'p');
   return [
     {

@@ -112,7 +112,7 @@ export function symbolFor(kind, props) {
  */
 export function createToolPalette(o) {
   const el = h('div', { class: 'tpal', role: 'toolbar', 'aria-orientation': 'vertical', 'aria-label': 'Tools' });
-  const card = h('div', { class: 'tcard', role: 'tooltip', hidden: true });
+  const card = h('div', { class: 'tooltip-card', role: 'tooltip', hidden: true });
   /** @type {string} */
   let active = 'select';
   let sticky = false;

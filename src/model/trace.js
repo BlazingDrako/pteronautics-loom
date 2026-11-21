@@ -210,6 +210,14 @@ export function requirementStatus(m) {
 /** Elements of a kind inside an RFLP layer. @param {Model} m @param {string} kind @param {string} layer */
 export const inLayer = (m, kind, layer) => m.byKind(kind).filter((e) => m.layerOf(e.id) === layer);
 
+/**
+ * The functions (activities and their steps). A function is a function wherever it is kept:
+ * models imported from other tools often keep activities beside the logical blocks, so every
+ * activity outside the requirements layer counts, not only those in the functional layer.
+ * @param {Model} m
+ */
+export const functionsOf = (m) => m.byKind('action').filter((e) => m.layerOf(e.id) !== 'r');
+
 /** The block a part belongs to; other elements stand for themselves. @param {Model} m @param {Element} e */
 export const cardOf = (m, e) => (e.kind === 'part' && e.owner ? /** @type {Element} */ (m.get(e.owner)) : e);
 
@@ -238,7 +246,7 @@ export function coverage(m) {
   const metric = (list, ok) => { const gaps = list.filter((e) => !ok(e)); return { total: list.length, done: list.length - gaps.length, gaps }; };
   const st = (/** @type {Element} */ r) => /** @type {ReqStatus} */ (status.get(r.id));
 
-  const fns = inLayer(m, 'action', 'f');
+  const fns = functionsOf(m);
   /** @type {Map<string, boolean>} */
   const fnDone = new Map();
   /** @param {Element} f @returns {boolean} */

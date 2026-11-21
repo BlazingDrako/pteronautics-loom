@@ -12,6 +12,7 @@ import { createApiClient, modelFromApi, apiElementsOf, uuidFor } from '../../src
 import { buildDocument, SECTIONS } from '../../src/interop/docs.js';
 import { diagramSvg } from '../../src/interop/snapshot.js';
 import { entries, entryForKind, CATEGORIES } from '../../src/library/entries.js';
+import { figureFor } from '../../src/library/figures.js';
 import { ELEMENTS, RELATIONSHIPS } from '../../src/model/metamodel.js';
 import { zip } from '../../src/storage/zip.js';
 import { validate } from '../../src/validate/engine.js';
@@ -276,6 +277,9 @@ export async function interopTests(log) {
   log('The library has an entry for every element and relationship kind', Object.keys(ELEMENTS).every((kk) => all.some((e) => e.id === entryForKind(kk))) && Object.keys(RELATIONSHIPS).every((kk) => all.some((e) => e.id === entryForKind(kk))));
   log('Every "see also" link leads somewhere', all.every((e) => (e.see || []).every((s) => all.some((x) => x.id === s))), all.flatMap((e) => (e.see || []).filter((s) => !all.some((x) => x.id === s)).map((s) => `${e.id}→${s}`)).join(', '));
   log('Every entry has a category, a summary and a body; ids are unique', all.every((e) => CATEGORIES.includes(e.category) && e.summary && e.body) && new Set(all.map((e) => e.id)).size === all.length);
+  const figs = all.map((e) => ({ e, f: figureFor(e) }));
+  log('Every library entry has a picture with a caption', figs.every((x) => x.f && x.f.caption && x.f.svg.querySelector('text, path, rect')), figs.filter((x) => !x.f).map((x) => x.e.id).join(', '));
+  log('Library pictures keep their arrowheads to themselves', (() => { const ids = figs.flatMap((x) => [...(x.f?.svg.querySelectorAll('marker') || [])].map((mm) => mm.id)); return new Set(ids).size === ids.length; })());
   log('Concept articles cover the basics', ['mbse', 'rflp', 'traceability', 'writing-requirements', 'profiles', 'exchange'].every((id) => all.some((e) => e.id === id)));
 }
 

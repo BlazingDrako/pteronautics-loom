@@ -301,6 +301,6 @@ export async function uiTests(log) {
     log('Palettes can show tool names', !!host.querySelector('.tpal.wide .tbtn-label'));
   } finally {
     ws.dispose(); host.remove(); css.remove();
-    document.querySelectorAll('.popmenu, .tcard, .tree-ghost').forEach((x) => x.remove());
+    document.querySelectorAll('.popmenu, .tooltip-card, .tree-ghost').forEach((x) => x.remove());
   }
 }
