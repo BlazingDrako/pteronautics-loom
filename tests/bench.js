@@ -11,6 +11,8 @@ import { printPackage } from '../src/text/printer.js';
 import { parseLayer, buildSnapshot, applyLayerText } from '../src/text/build.js';
 import { highlight } from '../src/ui/textpane.js';
 import { projectFiles, modelFromFiles } from '../src/storage/folder.js';
+import { layoutActivity } from '../src/canvas/act.js';
+import { createSequenceView } from '../src/canvas/sdview.js';
 
 /** @typedef {{ name: string, ms: number, budget: number, note?: string }} Row */
 
@@ -219,4 +221,41 @@ export async function runBench(report) {
   report({ name: 'Write the project as folder files (text, ids, layouts)', ms: tFiles, budget: 500 });
   const tLoad = time(() => modelFromFiles(pf));
   report({ name: 'Open the project from its folder files', ms: tLoad, budget: 1000 });
+
+  // ---------- 6. behavior ----------
+  const bm = createModel();
+  const [, BF, BL] = bm.layers().map((l) => l.id);
+  /** @type {string} */
+  let sdId = '';
+  /** @type {{ id: string, w: number, h: number }[]} */
+  const anodes = [];
+  /** @type {{ from: string, to: string, kind: string }[]} */
+  const aedges = [];
+  bm.transact('Behavior', (tx) => {
+    const fn = tx.create('action', { owner: BF, name: 'Big activity' });
+    const lanes = Array.from({ length: 6 }, (_, i) => tx.create('partDef', { owner: BL, name: `Unit ${i}` }));
+    let prev = tx.create('controlNode', { owner: fn, name: 'Initial', props: { nodeKind: 'initial' } });
+    anodes.push({ id: prev, w: 30, h: 30 }, ...lanes.map((id) => ({ id, w: 260, h: 400 })));
+    for (let i = 0; i < 400; i++) {
+      const a = tx.create('action', { owner: fn, name: `Step ${i}` });
+      tx.link('allocate', a, lanes[i % 6]);
+      anodes.push({ id: a, w: 170, h: 50 });
+      aedges.push({ from: prev, to: a, kind: 'flow' });
+      prev = a;
+    }
+    const inter = tx.create('interaction', { owner: BF, name: 'Long scenario' });
+    const lifes = Array.from({ length: 8 }, (_, i) => tx.create('lifeline', { owner: inter, name: `p${i}` }));
+    for (let i = 0; i < 1000; i++) tx.create('message', { owner: inter, name: `call${i}()`, props: { from: lifes[i % 8], to: lifes[(i * 3 + 1) % 8] } });
+    sdId = tx.create('sd', { owner: inter, name: 'Long sequence' });
+  });
+  const tAct = time(() => layoutActivity(bm, anodes, aedges, anodes.slice(1, 7).map((x) => x.id)));
+  report({ name: 'Tidy an activity of 400 steps in 6 swimlanes', ms: tAct, budget: 300 });
+  const shost = document.createElement('div');
+  Object.assign(shost.style, { position: 'fixed', left: '0', top: '0', width: '1280px', height: '800px', display: 'flex', flexDirection: 'column', opacity: '0', pointerEvents: 'none' });
+  document.body.append(shost);
+  const sv = createSequenceView({ model: bm, diagramId: sdId, notation: () => 'sysml', selected: () => null, select: () => {}, edit: (l, fn) => { bm.transact(l, fn); return true; } });
+  shost.append(sv.el);
+  const tSd = time(() => sv.render());
+  report({ name: 'Draw a sequence diagram of 1,000 messages', ms: tSd, budget: 200 });
+  sv.dispose(); shost.remove();
 }

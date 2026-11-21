@@ -2,6 +2,9 @@
 // and as a test fixture. Values are illustrative.
 import { populate, populateReq } from '../canvas/populate.js';
 import { packIbd } from '../canvas/ibd.js';
+import { populateAct } from '../canvas/act.js';
+import { populateStm } from '../canvas/stm.js';
+import { populateUc, populatePkg } from '../canvas/uc.js';
 
 /** @param {import('./model.js').Model} m */
 export function buildKestrel(m) {
@@ -116,6 +119,102 @@ export function buildKestrel(m) {
     const d = tx.create('ibd', { owner: av, name: 'Air vehicle internals' });
     tx.place(d, packIbd(m, av));
   });
+  buildBehavior(m);
   m.clear();
   return m;
+}
+
+/** Activities, states, use cases, a scenario and the model's organization. @param {import('./model.js').Model} m */
+function buildBehavior(m) {
+  const [R, F, L, P] = m.layers().map((l) => l.id);
+  const by = (/** @type {string} */ name) => /** @type {string} */ (m.all().find((e) => e.name === name)?.id);
+  m.transact('Kestrel behavior', (tx) => {
+    // ---- the survey flight as an activity, in lanes by allocation ----
+    const fly = by('Fly the survey');
+    const [thrust, lift, store, attitude, image] = ['Generate thrust', 'Generate lift', 'Store energy', 'Control attitude', 'Capture imagery'].map(by);
+    const node = (/** @type {string} */ name, /** @type {string} */ kind) => tx.create('controlNode', { owner: fly, name, props: { nodeKind: kind } });
+    const start = node('Initial', 'initial'), merge = node('Merge', 'merge'), fork = node('Fork', 'fork'), join = node('Join', 'join');
+    const covered = node('Area covered?', 'decision'), done = node('Final', 'final');
+    const flow = (/** @type {string} */ a, /** @type {string} */ b, /** @type {Record<string, any>} */ props = {}) => tx.create('flow', { owner: fly, name: `${m.get(a)?.name} → ${m.get(b)?.name}`, props: { from: a, to: b, ...props } });
+    flow(start, store);
+    flow(store, merge, { flowKind: 'object', item: 'DC power' });
+    flow(merge, thrust);
+    flow(thrust, fork);
+    flow(fork, lift); flow(fork, attitude); flow(fork, image);
+    flow(lift, join); flow(attitude, join); flow(image, join);
+    flow(join, covered);
+    flow(covered, done, { guard: 'area covered' });
+    flow(covered, merge, { guard: 'else' });
+    const act = tx.create('act', { owner: fly, name: 'Survey flight' });
+    populateAct(m, tx, act);
+
+    // ---- the air vehicle's states ----
+    const av = by('Kestrel Air Vehicle');
+    const st = (/** @type {string} */ owner, /** @type {string} */ name, /** @type {Record<string, any>} */ props = {}) => tx.create('state', { owner, name, props });
+    const s0 = st(av, 'Initial', { stateKind: 'initial' });
+    const idle = st(av, 'Idle');
+    const armed = st(av, 'Armed', { entry: 'spin up motors' });
+    const flying = st(av, 'Flying', { do: 'hold attitude' });
+    const f0 = st(flying, 'Start', { stateKind: 'initial' });
+    const climb = st(flying, 'Climb');
+    const survey = st(flying, 'Survey', { do: 'capture imagery' });
+    const ret = st(flying, 'Return', { entry: 'set home waypoint' });
+    const landed = st(av, 'Landed', { entry: 'disarm' });
+    const end = st(av, 'Off', { stateKind: 'final' });
+    const tr = (/** @type {string} */ a, /** @type {string} */ b, /** @type {Record<string, any>} */ props = {}) => tx.create('transition', { owner: /** @type {string} */ (m.get(a)?.owner), name: `${m.get(a)?.name} → ${m.get(b)?.name}`, props: { from: a, to: b, ...props } });
+    tr(s0, idle);
+    tr(idle, armed, { trigger: 'armCmd', guard: 'preflight ok' });
+    tr(armed, flying, { trigger: 'takeoffCmd' });
+    tr(f0, climb);
+    tr(climb, survey, { trigger: 'altitudeReached' });
+    tr(survey, ret, { trigger: 'surveyDone' });
+    tr(survey, ret, { trigger: 'batteryLow', effect: 'warn operator' });
+    tr(flying, landed, { trigger: 'touchdown' });
+    tr(landed, end, { trigger: 'powerOff' });
+    const stm = tx.create('stm', { owner: av, name: 'Air vehicle states' });
+    populateStm(m, tx, stm);
+
+    // ---- use cases, with the air vehicle as subject ----
+    const ucs = tx.create('package', { owner: R, name: 'Use cases' });
+    const operator = tx.create('actor', { owner: ucs, name: 'Operator' });
+    const analyst = tx.create('actor', { owner: ucs, name: 'Image analyst' });
+    const flySurvey = tx.create('useCase', { owner: av, name: 'Fly a survey' });
+    const takeOff = tx.create('useCase', { owner: av, name: 'Take off' });
+    const goHome = tx.create('useCase', { owner: av, name: 'Return home' });
+    const process = tx.create('useCase', { owner: ucs, name: 'Process imagery' });
+    tx.link('participate', operator, flySurvey);
+    tx.link('participate', analyst, process);
+    tx.link('include', flySurvey, takeOff);
+    tx.link('extend', goHome, flySurvey);
+    tx.link('refine', fly, by('Endurance'));
+    const ucd = tx.create('uc', { owner: ucs, name: 'Survey use cases' });
+    populateUc(m, tx, ucd);
+
+    // ---- a survey sortie, as a sequence ----
+    const sortie = tx.create('interaction', { owner: av, name: 'Survey sortie' });
+    const part = (/** @type {string} */ name) => m.children(av).find((c) => c.kind === 'part' && c.name === name)?.id || null;
+    const life = (/** @type {string} */ name, /** @type {string | null} */ rep) => tx.create('lifeline', { owner: sortie, name, props: { represents: rep } });
+    const lo = life('operator', operator), la = life('avionics', part('avionics')), lp = life('propulsion', part('propulsion')), lc = life('payload', part('payload'));
+    const msg = (/** @type {string} */ owner, /** @type {string} */ name, /** @type {string} */ a, /** @type {string} */ b, kind = 'sync') => tx.create('message', { owner, name, props: { from: a, to: b, msgKind: kind } });
+    msg(sortie, 'uploadPlan(route)', lo, la);
+    msg(sortie, 'arm()', lo, la);
+    msg(sortie, 'throttle(takeoff)', la, lp, 'async');
+    const loop = tx.create('fragment', { owner: sortie, name: 'Each waypoint', props: { operator: 'loop' } });
+    const each = tx.create('operand', { owner: loop, name: 'Waypoints', props: { guard: 'for each waypoint' } });
+    msg(each, 'setThrust(level)', la, lp, 'async');
+    msg(each, 'capture()', la, lc);
+    msg(each, 'imageStored', lc, la, 'reply');
+    const alt = tx.create('fragment', { owner: sortie, name: 'Battery check', props: { operator: 'alt' } });
+    const low = tx.create('operand', { owner: alt, name: 'Low', props: { guard: 'battery low' } });
+    msg(low, 'batteryWarning', la, lo, 'async');
+    const ok = tx.create('operand', { owner: alt, name: 'Otherwise' });
+    msg(ok, 'nextLeg()', la, la);
+    msg(sortie, 'landed', la, lo, 'async');
+    tx.create('sd', { owner: sortie, name: 'Survey sortie sequence' });
+
+    // ---- how the model is organized ----
+    tx.link('import', F, R); tx.link('import', L, R); tx.link('import', L, F); tx.link('import', P, L);
+    const pkgd = tx.create('pkg', { owner: L, name: 'Model organization' });
+    populatePkg(m, tx, pkgd, 'sysml', [R, F, L, P]);
+  });
 }

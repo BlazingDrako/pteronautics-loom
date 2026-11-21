@@ -19,7 +19,7 @@ const HL_LIMIT = 400_000; // characters: beyond this the text is shown without c
 /** Syntax colors as HTML. @param {string} text */
 export function highlight(text) {
   const esc = (/** @type {string} */ t) => t.replace(/[&<>]/g, (c) => /** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
-  const re = /(\/\*[\s\S]*?(?:\*\/|$))|(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"?)|('(?:[^'\\\n]|\\.)*'?)|(<'(?:[^'\\\n]|\\.)*'>|<[A-Za-z0-9_.-]+>)|(@Loom\b)|(\b(?:package|part|def|port|requirement|verification|action|attribute|connection|connect|view|doc|comment|in|out|inout)\b)|(\b(?:satisfy|verify|refine|derive|copy|allocate|dependency|to|true|false)\b)|(-?\b\d+(?:\.\d+)?(?:[eE][-+]?\d+)?\b)|(:>|::|~)/g;
+  const re = /(\/\*[\s\S]*?(?:\*\/|$))|(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"?)|('(?:[^'\\\n]|\\.)*'?)|(<'(?:[^'\\\n]|\\.)*'>|<[A-Za-z0-9_.-]+>)|(@Loom\b)|(\b(?:package|part|def|port|requirement|verification|action|attribute|connection|connect|view|doc|comment|in|out|inout|state|region|transition|interaction|lifeline|message|fragment|operand|actor|use|case|start|done|terminate|decide|merge|fork|join)\b)|(\b(?:satisfy|verify|refine|derive|copy|allocate|dependency|include|extend|participate|import|succession|flow|first|then|accept|if|do|from|to|true|false)\b)|(-?\b\d+(?:\.\d+)?(?:[eE][-+]?\d+)?\b)|(:>|::|~)/g;
   let out = '', last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
     out += esc(text.slice(last, m.index));

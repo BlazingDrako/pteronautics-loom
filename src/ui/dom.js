@@ -82,6 +82,7 @@ const ICONS = {
   columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4 V20 M15 4 V20"/>',
   hash: '<path d="M5 9 H19 M5 15 H19 M10 4 L8 20 M16 4 L14 20"/>',
   check: '<path d="M5 12.5 L10 17 L19 7"/>',
+  list: '<path d="M8 6 H20 M8 12 H20 M8 18 H20"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
   folder: '<path d="M3 7 a2 2 0 0 1 2-2 H9.5 L11.5 7.5 H19 a2 2 0 0 1 2 2 V17 a2 2 0 0 1-2 2 H5 a2 2 0 0 1-2-2 Z"/>',
   code: '<path d="M8.5 7 L3.5 12 L8.5 17 M15.5 7 L20.5 12 L15.5 17"/>',
   zip: '<path d="M6 3 H14 L19 8 V21 H6 Z"/><path d="M11 3 V5 M11 7 V9 M11 11 V13"/>',

@@ -6,7 +6,7 @@
 //   numbers      16, 3.74, -2e3
 //   brackets     [Ah], [0..*]  (kept as raw text)
 //   doc bodies   /* … */  (kept as text; Loom writes *\/ for a literal */)
-//   symbols      { } ; : :> :: ~ = . , @ #
+//   symbols      { } ; : :> :: ~ = . , @ # *
 // Line notes (// …) are skipped.
 
 /** @typedef {'name' | 'qname' | 'short' | 'string' | 'number' | 'bracket' | 'block' | 'sym' | 'eof'} TokType */
@@ -18,7 +18,9 @@ export class TextError extends Error {
 }
 
 /** Words that must be quoted when used as names. */
-export const KEYWORDS = new Set(['package', 'part', 'def', 'port', 'requirement', 'verification', 'action', 'attribute', 'connection', 'connect', 'to', 'view', 'doc', 'comment', 'satisfy', 'verify', 'refine', 'derive', 'copy', 'allocate', 'dependency', 'in', 'out', 'inout', 'true', 'false', 'self', 'about', 'import', 'private', 'public', 'abstract', 'ref', 'item', 'flow', 'of', 'from', 'by', 'specializes', 'subsets', 'metadata']);
+export const KEYWORDS = new Set(['package', 'part', 'def', 'port', 'requirement', 'verification', 'action', 'attribute', 'connection', 'connect', 'to', 'view', 'doc', 'comment', 'satisfy', 'verify', 'refine', 'derive', 'copy', 'allocate', 'dependency', 'in', 'out', 'inout', 'true', 'false', 'self', 'about', 'import', 'private', 'public', 'abstract', 'ref', 'item', 'flow', 'of', 'from', 'by', 'specializes', 'subsets', 'metadata',
+  'state', 'region', 'transition', 'first', 'then', 'accept', 'if', 'do', 'succession', 'start', 'done', 'terminate', 'decide', 'merge', 'fork', 'join',
+  'actor', 'use', 'case', 'include', 'extend', 'participate', 'interaction', 'lifeline', 'message', 'fragment', 'operand', 'entry', 'exit']);
 
 const BASIC = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A name as written: bare when it can be, quoted otherwise. @param {string} name */
@@ -89,7 +91,7 @@ export function lex(src) {
     if (word) { push('name', word[0]); adv(word[0].length); continue; }
     const two = src.slice(i, i + 2);
     if (two === ':>' || two === '::') { push('sym', two); adv(2); continue; }
-    if ('{};:~=.,@#'.includes(c)) { push('sym', c); adv(1); continue; }
+    if ('{};:~=.,@#*'.includes(c)) { push('sym', c); adv(1); continue; }
     throw new TextError(`Unexpected character "${c}"`, l0, c0);
   }
   out.push({ t: 'eof', v: '', line, col });

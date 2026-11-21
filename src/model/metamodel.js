@@ -10,7 +10,7 @@
 /**
  * @typedef {({ type: 'text' | 'longtext' | 'bool', label: string, default?: any, placeholder?: string }
  *   | { type: 'enum', label: string, options: string[], default: string }
- *   | { type: 'ref', label: string, kinds: string[], default?: null }
+ *   | { type: 'ref', label: string, kinds: string[], default?: null, required?: true }  required: deleting the target deletes this element
  *   | { type: 'end', label: string, default?: null }) & { hidden?: true }} PropSpec  hidden: kept by a view's own controls, not shown in the inspector
  * @typedef {{ path: string[], port: string | null }} End  a connector end: parts from the owning block, then an optional port
  */
@@ -193,9 +193,146 @@ export const ELEMENTS = {
     },
     help: 'A grid of two sets of elements with a mark wherever a relationship joins them. Click a cell to add or remove the relationship.',
   },
+  // ---------- behavior (M6) ----------
+  controlNode: {
+    names: { sysml: 'Control node', v2: 'control node', guided: 'Flow point' }, abbr: 'ctl',
+    owners: ['action'],
+    props: {
+      nodeKind: { type: 'enum', label: 'Kind', options: ['initial', 'final', 'flowFinal', 'decision', 'merge', 'fork', 'join'], default: 'decision' },
+      doc: DOC,
+    },
+    help: 'Where an activity starts (initial), ends (final, flow final), chooses (decision), comes together (merge), splits into parallel paths (fork) or waits for them (join).',
+  },
+  flow: {
+    names: { sysml: 'Activity edge', v2: 'succession', guided: 'Then' }, abbr: 'flow', noMenu: true,
+    owners: ['action'],
+    props: {
+      from: { type: 'ref', label: 'From', kinds: ['action', 'controlNode'], required: true },
+      to: { type: 'ref', label: 'To', kinds: ['action', 'controlNode'], required: true },
+      flowKind: { type: 'enum', label: 'Kind', options: ['control', 'object'], default: 'control' },
+      guard: { type: 'text', label: 'Guard', default: '', placeholder: 'battery > 20%' },
+      item: { type: 'text', label: 'Object (item)', default: '', placeholder: 'Image' },
+      doc: DOC,
+    },
+    help: 'What happens next in an activity. A control flow passes control; an object flow carries an item. A guard says when this path is taken.',
+  },
+  state: {
+    names: { sysml: 'State', v2: 'state', guided: 'State' }, abbr: 'st',
+    owners: ['partDef', 'state', 'region'],
+    props: {
+      stateKind: { type: 'enum', label: 'Kind', options: ['state', 'initial', 'final', 'choice', 'history'], default: 'state' },
+      entry: { type: 'text', label: 'Entry', default: '', placeholder: 'arm motors' },
+      do: { type: 'text', label: 'Do', default: '', placeholder: 'hold altitude' },
+      exit: { type: 'text', label: 'Exit', default: '', placeholder: 'log event' },
+      doc: DOC,
+    },
+    help: 'A condition the system is in, with what it does on entry, while in it, and on exit. States can contain states, and regions that run at the same time.',
+  },
+  region: {
+    names: { sysml: 'Region', v2: 'region', guided: 'Parallel part' }, abbr: 'rgn',
+    owners: ['state'], props: { doc: DOC },
+    help: 'An orthogonal region: states in different regions of one state are active at the same time.',
+  },
+  transition: {
+    names: { sysml: 'Transition', v2: 'transition', guided: 'Change' }, abbr: 'tr', noMenu: true,
+    owners: ['partDef', 'state', 'region'],
+    props: {
+      from: { type: 'ref', label: 'From', kinds: ['state'], required: true },
+      to: { type: 'ref', label: 'To', kinds: ['state'], required: true },
+      trigger: { type: 'text', label: 'Trigger', default: '', placeholder: 'takeoffCmd' },
+      guard: { type: 'text', label: 'Guard', default: '', placeholder: 'battery > 30%' },
+      effect: { type: 'text', label: 'Effect', default: '', placeholder: 'start logging' },
+      doc: DOC,
+    },
+    help: 'A change from one state to another: when the trigger happens and the guard holds, the effect runs.',
+  },
+  interaction: {
+    names: { sysml: 'Interaction', v2: 'interaction', guided: 'Scenario' }, abbr: 'int', defaultLayer: 'f',
+    owners: ['package', 'partDef'], props: { doc: DOC },
+    help: 'A scenario: who exchanges which messages, in what order. Shown on a sequence diagram.',
+  },
+  lifeline: {
+    names: { sysml: 'Lifeline', v2: 'lifeline', guided: 'Participant' }, abbr: 'life',
+    owners: ['interaction'],
+    props: { represents: { type: 'ref', label: 'Represents', kinds: ['part', 'partDef', 'actor'] }, doc: DOC },
+    help: 'One participant in a scenario: a part, a block or an actor.',
+  },
+  message: {
+    names: { sysml: 'Message', v2: 'message', guided: 'Message' }, abbr: 'msg', noMenu: true,
+    owners: ['interaction', 'operand'],
+    props: {
+      from: { type: 'ref', label: 'From', kinds: ['lifeline'], required: true },
+      to: { type: 'ref', label: 'To', kinds: ['lifeline'], required: true },
+      msgKind: { type: 'enum', label: 'Kind', options: ['sync', 'async', 'reply', 'create'], default: 'sync' },
+      doc: DOC,
+    },
+    help: 'A call, signal or reply from one participant to another. Messages read top to bottom in order.',
+  },
+  fragment: {
+    names: { sysml: 'Combined fragment', v2: 'fragment', guided: 'Block of steps' }, abbr: 'frag', noMenu: true,
+    owners: ['interaction', 'operand'],
+    props: { operator: { type: 'enum', label: 'Operator', options: ['alt', 'opt', 'loop', 'par', 'break', 'critical'], default: 'opt' }, doc: DOC },
+    help: 'Messages that happen under a condition (opt), one of several ways (alt), repeatedly (loop) or in parallel (par).',
+  },
+  operand: {
+    names: { sysml: 'Operand', v2: 'operand', guided: 'Case' }, abbr: 'case',
+    owners: ['fragment'],
+    props: { guard: { type: 'text', label: 'Guard', default: '', placeholder: 'battery low' }, doc: DOC },
+    help: 'One part of a combined fragment, with the condition under which it happens.',
+  },
+  actor: {
+    names: { sysml: 'Actor', v2: 'actor', guided: 'Person or system' }, abbr: 'act', defaultLayer: 'r',
+    owners: ['package'], props: { doc: DOC },
+    help: 'Someone or something outside the system that uses it: an operator, a ground station, another system.',
+  },
+  useCase: {
+    names: { sysml: 'Use case', v2: 'use case', guided: 'Use' }, abbr: 'uc', defaultLayer: 'r',
+    owners: ['package', 'partDef'], props: { doc: DOC },
+    help: 'A goal an actor reaches with the system. Put it inside a block to make that block its subject.',
+  },
+  act: {
+    names: { sysml: 'Activity diagram', v2: 'action flow view', guided: 'Flow diagram' }, abbr: 'act', defaultLayer: 'f', diagram: true,
+    owners: ['action'],
+    props: {
+      showLanes: { type: 'bool', label: 'Swimlanes (allocation)', default: true },
+      showGuards: { type: 'bool', label: 'Guards and items on flows', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows what a function does, step by step: its actions, decisions, parallel paths and flows. Swimlanes show (and set) which block each action is allocated to.',
+  },
+  stm: {
+    names: { sysml: 'State machine diagram', v2: 'state transition view', guided: 'States diagram' }, abbr: 'stm', defaultLayer: 'l', diagram: true,
+    owners: ['partDef'],
+    props: {
+      showActions: { type: 'bool', label: 'Entry, do and exit', default: true },
+      showLabels: { type: 'bool', label: 'Transition labels', default: true },
+      snap: { type: 'bool', label: 'Snap to grid and guides', default: true },
+      doc: DOC,
+    },
+    help: 'Shows the states of a block and the transitions between them. Drag a state into another to nest it.',
+  },
+  sd: {
+    names: { sysml: 'Sequence diagram', v2: 'sequence view', guided: 'Scenario diagram' }, abbr: 'sd', defaultLayer: 'f', diagram: true,
+    owners: ['interaction'],
+    props: { doc: DOC },
+    help: 'Shows a scenario: participants across the top, messages in order down the page, and fragments for options, choices and loops.',
+  },
+  uc: {
+    names: { sysml: 'Use case diagram', v2: 'use case view', guided: 'Uses diagram' }, abbr: 'ucd', defaultLayer: 'r', diagram: true,
+    owners: ['package', 'partDef'],
+    props: { showRoles: { type: 'bool', label: 'Relationship names on lines', default: true }, snap: { type: 'bool', label: 'Snap to grid and guides', default: true }, doc: DOC },
+    help: 'Shows actors, the use cases they take part in, and the system boundary (a block as the subject). Drag a use case into or out of the boundary to change its subject.',
+  },
+  pkg: {
+    names: { sysml: 'Package diagram', v2: 'package view', guided: 'Folders diagram' }, abbr: 'pkgd', diagram: true,
+    owners: ['package'],
+    props: { showMembers: { type: 'bool', label: 'Members', default: true }, showRoles: { type: 'bool', label: 'Relationship names on lines', default: true }, snap: { type: 'bool', label: 'Snap to grid and guides', default: true }, doc: DOC },
+    help: 'Shows how the model is organized: packages, what they contain, and which import or depend on which.',
+  },
   comment: {
     names: { sysml: 'Comment', v2: 'comment', guided: 'Note' }, abbr: 'note',
-    owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef'],
+    owners: ['package', 'requirement', 'testCase', 'action', 'partDef', 'interfaceDef', 'state', 'interaction', 'useCase'],
     props: { doc: { ...DOC, label: 'Text', placeholder: 'Write a note' } },
     help: 'A note attached to an element.',
   },
@@ -226,7 +363,7 @@ export const RELATIONSHIPS = {
   },
   allocate: {
     names: { sysml: 'Allocate', v2: 'allocation', guided: 'Done by' }, verb: { sysml: 'allocated to', v2: 'allocated to', guided: 'done by' }, inverse: { sysml: 'allocated from', v2: 'allocated from', guided: 'does' }, rel: true,
-    sources: ['action', 'partDef', 'part'], targets: ['partDef', 'part'],
+    sources: ['action', 'partDef', 'part', 'useCase'], targets: ['partDef', 'part'],
     help: 'Assigns a function, or a logical element, to the structure that realizes it.',
   },
   generalize: {
@@ -238,6 +375,26 @@ export const RELATIONSHIPS = {
     names: { sysml: 'Copy', v2: 'copy', guided: 'Copy of' }, verb: { sysml: 'copies', v2: 'copies', guided: 'is a copy of' }, inverse: { sysml: 'copied by', v2: 'copied by', guided: 'copied to' }, rel: true,
     sources: ['requirement'], targets: ['requirement'],
     help: 'A requirement whose text is reused, unchanged, from another (for example from a supplier specification).',
+  },
+  include: {
+    names: { sysml: 'Include', v2: 'include', guided: 'Includes' }, verb: { sysml: 'includes', v2: 'includes', guided: 'always does' }, inverse: { sysml: 'included by', v2: 'included by', guided: 'always done in' }, rel: true,
+    sources: ['useCase'], targets: ['useCase'],
+    help: 'A use case that always includes another (Fly survey includes Take off).',
+  },
+  extend: {
+    names: { sysml: 'Extend', v2: 'extend', guided: 'Sometimes adds' }, verb: { sysml: 'extends', v2: 'extends', guided: 'sometimes adds to' }, inverse: { sysml: 'extended by', v2: 'extended by', guided: 'sometimes gets' }, rel: true,
+    sources: ['useCase'], targets: ['useCase'],
+    help: 'A use case that adds to another only in some cases (Return home extends Fly survey).',
+  },
+  participate: {
+    names: { sysml: 'Association', v2: 'participation', guided: 'Takes part in' }, verb: { sysml: 'participates in', v2: 'participates in', guided: 'takes part in' }, inverse: { sysml: 'has participant', v2: 'has participant', guided: 'involves' }, rel: true,
+    sources: ['actor'], targets: ['useCase'],
+    help: 'An actor takes part in a use case.',
+  },
+  import: {
+    names: { sysml: 'Import', v2: 'import', guided: 'Uses folder' }, verb: { sysml: 'imports', v2: 'imports', guided: 'uses' }, inverse: { sysml: 'imported by', v2: 'imported by', guided: 'used by' }, rel: true,
+    sources: ['package'], targets: ['package'],
+    help: 'A package that uses the names of another package\'s members.',
   },
   trace: {
     names: { sysml: 'Trace', v2: 'dependency', guided: 'Related to' }, verb: { sysml: 'traces to', v2: 'depends on', guided: 'is related to' }, inverse: { sysml: 'traced from', v2: 'depended on by', guided: 'is related to' }, rel: true,
@@ -253,6 +410,9 @@ export const LAYERS = /** @type {const} */ ([
   { id: 'l', name: 'Logical', note: 'How it is organized', color: 'var(--layer-l)' },
   { id: 'p', name: 'Physical', note: 'What gets built', color: 'var(--layer-p)' },
 ]);
+
+/** Kinds that are plumbing of a diagram rather than things to trace to. */
+export const NOT_TRACED = ['comment', 'flow', 'transition', 'message', 'operand', 'region', 'controlNode', 'lifeline', 'fragment'];
 
 /** @param {string} kind */
 export const isRel = (kind) => kind in RELATIONSHIPS;
@@ -284,7 +444,7 @@ export function childKinds(owner) {
 export function canRelate(kind, src, tgt) {
   const r = RELATIONSHIPS[kind];
   if (!r) return false;
-  const ok = (/** @type {string[] | '*'} */ list, /** @type {string} */ k) => list === '*' ? (k in ELEMENTS && k !== 'comment' && !ELEMENTS[k].diagram) : list.includes(k);
+  const ok = (/** @type {string[] | '*'} */ list, /** @type {string} */ k) => list === '*' ? (k in ELEMENTS && !NOT_TRACED.includes(k) && !ELEMENTS[k].diagram) : list.includes(k);
   return ok(r.sources, src) && ok(r.targets, tgt);
 }
 

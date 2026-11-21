@@ -12,7 +12,17 @@
 
 They are separate programs under the Pteronautics name. Loom stands on its own: linking Pteronautics Works is an optional integration, **off by default**.
 
-## What works today (0.6.0: SysML v2 text and project folders)
+## What works today (0.7.0: behavior diagrams)
+
+- **Activity diagrams** for any function: its steps (sub-functions), initial, final and flow-final nodes, decisions, merges, forks and joins, joined by control and object flows with guards and items. Drag from a step's handle to the next to add a flow. **Swimlanes are allocation**: each lane is a block, an action in a lane is allocated to it, and dragging an action to another lane changes the allocation in the model (adding or resizing a lane never does). Moving a lane moves what is in it. Tidy layout runs the flow top to bottom from the initial node, each step in its lane.
+- **State machine diagrams** for any block: states with entry / do / exit, initial, final, choice and history pseudo-states, transitions labeled *trigger [guard] / effect*, composite states and orthogonal regions. Drag a state into another to nest it in the model, out to un-nest it; moving a composite moves its states. Tidy lays composites out around their insides.
+- **Sequence diagrams** for any scenario (interaction): lifelines for parts, blocks or actors; synchronous, asynchronous, reply and create messages, and self messages; combined fragments (alt, opt, loop, par, break, critical) with guarded operands. The picture is laid out from the model: drag between lifelines to add a message where you let go, drag a message up or down (into or out of fragments) to reorder it, drag a lifeline's head to reorder lifelines.
+- **Use case diagrams**: actors as figures, use cases as ellipses, blocks as the system boundary (subject); associations, «include» and «extend». Drop a use case in a boundary to give it that subject.
+- **Package diagrams**: packages as folders listing their members, containment and «import» dependencies.
+- **Model**: control nodes, flows, states, regions, transitions, interactions, lifelines, messages, fragments, operands, actors and use cases; include, extend, association and import relationships. Deleting a step, state or lifeline deletes the flows, transitions or messages that end on it (and undo brings them back). All of it is in the SysML v2 text and in project folders.
+- The Kestrel sample now has a survey-flight activity in three lanes, the air vehicle's state machine, a survey sortie sequence, its use cases, and a package diagram of the four layers.
+
+### 0.6.0: SysML v2 text and project folders
 
 - **SysML v2 text**: every model is also text, one package per RFLP layer (see [the text format](#the-text-format) below). The printer is canonical: the same model always prints the same text, so diffs stay small.
 - **Text pane** (⌘E, or the button in the project panel): the layer's text beside any diagram, table or view, with syntax colors and line numbers. **Edit it directly**: your text is checked as you type, and applied as one undoable change when you pause (or press ⌘Enter, or click away), as long as it has no errors. Errors name the line and what is wrong ("Nothing named 'Endurace' can be used here", "A requirement cannot verify here: verify goes from a test case to a requirement"). Renaming or moving something in the text keeps it the same element, so it keeps its place on every diagram and every relationship to it. Click in the text to select that element; select an element anywhere to jump to its text.
@@ -68,7 +78,7 @@ They are separate programs under the Pteronautics name. Loom stands on its own: 
 - **Notation**: SysML (Block, Part property…), SysML v2 (part def, part…) or Guided (Part type, Part…), switched live.
 - **Autosave** a moment after every change, plus the Pteronautics Works switch (off by default) and light and dark themes.
 
-**Not built yet:** the activity, state machine, sequence, parametric, use case and package diagrams, the SysML library and SysML v2 text files. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
+**Not built yet:** the parametric diagram and solver, simulation, validation rules, the SysML library, and Cameo/XMI import. These are marked "soon" in the app. See [PLAN.md](PLAN.md).
 
 ## The text format
 
@@ -103,6 +113,12 @@ package Logical {
 | `view Name { @Loom { kind = "bdd"; } }` | a diagram, table or matrix (`bdd`, `ibd`, `req`, `table`, `matrix`) |
 | `comment Name /* text */` | a note |
 | `satisfy X;` `verify X;` `refine X;` `derive X;` `copy X;` `allocate to X;` `dependency to X;` | relationships from the element they are written in |
+| `start S;` `done F;` `terminate T;` `decide D;` `merge M;` `fork F;` `join J;` | an activity's control nodes |
+| `succession first A then B;` / `flow from A to B;` | a control flow / an object flow (guard and item in `@Loom`) |
+| `state S { … }` / `region R { … }` | a state (entry, do, exit and its kind in `@Loom`) / an orthogonal region |
+| `transition first A accept "trigger" if "guard" do "effect" then B;` | a transition |
+| `interaction I { lifeline a : Part; message 'call()' from a to b; fragment F { operand O { … } } }` | a scenario for a sequence diagram |
+| `actor A;` `use case U { include V; extend W; }` `participate in U;` `import P::*;` | use cases and package imports |
 
 Names with spaces or symbols are quoted (`'Battery Pack'`). A name finds the nearest element with that name; where two share one, qualify it (`Logical::'Battery Pack'`). Line notes (`// …`) are allowed and ignored.
 
@@ -116,9 +132,9 @@ Plain ES modules, no build step, no dependencies. Python 3 is the only requireme
 
 ## Tests
 
-Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), and SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder) tests. Results are also left in `window.__results`.
+Open http://localhost:8800/tests/ with the server running. It runs the settings, commands and shortcuts, fuzzy search, model core, files/import/export/projects, diagram (placing, boxes, lines, layout) internal block diagram (connectors, connection rules, nesting, layout), requirements and traceability (IDs, levels, coverage, threads, requirement diagrams, tables, matrices, the RFLP trace and the Systems V), SysML v2 text, folders and zip (parsing, printing, round trips, editing as text, errors, folder files, zip, the project store, and a live workspace saving to a folder), and behavior (activities and swimlane allocation, state nesting, sequences, use case subjects, packages, deletion cascades, behavior as text) tests. Results are also left in `window.__results`.
 
-**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; and printing, parsing, building and applying 16,000 lines of SysML v2 text.
+**Benchmarks:** http://localhost:8800/tests/bench.html checks the performance budgets in [PLAN.md](PLAN.md): opening a 50,000-element model; panning, zooming, editing and moving blocks on a 2,000-block diagram; coverage, the requirements table and the dependency matrix on 10,000 requirements; printing, parsing, building and applying 16,000 lines of SysML v2 text; and a 400-step activity and a 1,000-message sequence.
 
 ### Type checking (optional, for development)
 
@@ -157,6 +173,10 @@ src/canvas/populate.js       filling a new diagram
 src/canvas/ibd.js            what an internal block diagram shows, nested layout, connector routing
 src/canvas/ibdview.js        the internal block diagram canvas
 src/canvas/connect.js        connection rules: which ports may connect, and why not
+src/canvas/act.js            activity diagrams: shapes, flows, swimlanes as allocation, layout
+src/canvas/stm.js            state machine diagrams: states, nesting by dragging, layout
+src/canvas/uc.js             use case diagrams (subjects by dragging) and package diagrams
+src/canvas/sdview.js         sequence diagrams, laid out from message order
 src/canvas/req.js            what a requirement diagram shows (requirement boxes, «stereotyped» arrows)
 src/model/trace.js           requirement IDs, levels, coverage and the RFLP thread
 src/views/vhome.js           the Systems V

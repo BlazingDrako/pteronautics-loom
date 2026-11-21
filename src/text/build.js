@@ -95,6 +95,8 @@ export function buildSnapshot(base, inputs, o = {}) {
   function nameOf(n, kind) {
     if (n.name) return n.name;
     if (kind === 'connector') return `${n.end1?.segs.join('.')} → ${n.end2?.segs.join('.')}`;
+    if ((kind === 'flow' || kind === 'transition') && n.refs) return `${n.refs.from.parts.at(-1)} → ${n.refs.to.parts.at(-1)}`;
+    if (kind === 'controlNode') return ({ initial: 'Initial', final: 'Final', flowFinal: 'Flow final', decision: 'Decision', merge: 'Merge', fork: 'Fork', join: 'Join' })[n.fields?.nodeKind || ''] || 'Control node';
     if (kind === 'requirement' && n.short) return n.short;
     return fail(n, `This ${kindName(kind, 'sysml').toLowerCase()} needs a name`);
   }
@@ -122,6 +124,7 @@ export function buildSnapshot(base, inputs, o = {}) {
     if (kind === 'part') props.multiplicity = n.mult ?? '1';
     if (kind === 'port') { props.direction = n.direction || 'inout'; if (n.type) props.conjugated = n.type.conj; }
     if (kind === 'attribute') { props.value = n.value ?? ''; props.unit = n.unit ?? ''; }
+    for (const [k, v] of Object.entries(n.fields || {})) props[k] = v;
     return props;
   }
 
@@ -237,6 +240,10 @@ export function buildSnapshot(base, inputs, o = {}) {
   for (const { node: n, id, path } of placed) {
     current = path;
     const e = /** @type {Element} */ (els.get(id));
+    for (const [prop, r] of Object.entries(n.refs || {})) {
+      const spec = /** @type {any} */ (ELEMENTS[e.kind].props[prop]);
+      e.props[prop] = find(r, id, spec.kinds);
+    }
     if (n.type) {
       const kinds = TYPE_KINDS[e.kind];
       if (!kinds) throw new BuildError(`A ${kindName(e.kind, 'sysml').toLowerCase()} has no type`, n.type.line, n.type.col);

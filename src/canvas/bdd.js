@@ -15,11 +15,20 @@ import { FONTS, textWidth, wrapLines } from './measure.js';
  *   joined?: boolean,  // no separator line above (continues the compartment before it)
  * }} Compartment
  */
-/** @typedef {{ stereo: string, name: string, compartments: Compartment[], layerColor: string | null }} NodeContent */
+/**
+ * @typedef {{
+ *   stereo: string, name: string, compartments: Compartment[], layerColor: string | null,
+ *   shape?: string,                  // box (default), round, folder, ellipse, actor, circle, bullseye, circlex, history, diamond, bar, lane, boundary, region
+ *   fixed?: { w: number, h: number }, // small shapes keep this size
+ *   under?: boolean, depth?: number,  // a container drawn behind lines and boxes
+ *   label?: string, glyph?: string, linkable?: boolean,
+ * }} NodeContent
+ */
 /**
  * @typedef {{
  *   id: string,                       // stable key: the part id or the relationship id
- *   kind: 'composition' | 'generalization' | 'containment' | 'dependency',
+ *   kind: 'composition' | 'generalization' | 'containment' | 'dependency' | 'flow' | 'assoc',
+ *   dashed?: boolean,                 // a dashed line (include, extend, import)
  *   from: string, to: string,         // composition: whole → part type; generalization: specific → general;
  *                                     // containment: container → contained; dependency: client → supplier
  *   label?: string,                   // role name and multiplicity at the part end; «stereotype» on dependencies
@@ -86,13 +95,19 @@ export function compartmentLines(comp, inner) {
 
 /** Height of the content when the box is `w` wide. @param {NodeContent} c @param {number} w */
 export function heightAt(c, w) {
-  let h = BOX.header;
+  if (c.fixed) return c.fixed.h;
+  if (c.shape === 'ellipse' || c.shape === 'actor' || c.shape === 'lane' || c.shape === 'boundary' || c.shape === 'region') return BOX.minH;
+  let h = BOX.header + (c.shape === 'folder' ? 14 : 0);
   for (const comp of c.compartments) h += titleH(comp) + compartmentLines(comp, w - BOX.padX * 2).length * BOX.rowH + BOX.compPad;
   return Math.ceil(Math.max(BOX.minH, h));
 }
 
 /** The smallest box that shows everything without cutting text. Wrapped text is wrapped at a comfortable width. @param {NodeContent} c */
 export function naturalSize(c) {
+  if (c.fixed) return { ...c.fixed };
+  if (c.shape === 'ellipse') return { w: Math.ceil(Math.min(260, Math.max(150, textWidth(c.name, FONTS.name) / 0.78 + 30))), h: 70 };
+  if (c.shape === 'actor') return { w: Math.ceil(Math.max(90, Math.min(180, textWidth(c.name, FONTS.name) + 12))), h: 100 };
+  if (c.shape === 'lane' || c.shape === 'boundary' || c.shape === 'region') return { w: Math.ceil(Math.max(200, textWidth(c.name, FONTS.name) + 40)), h: 200 };
   let w = Math.max(textWidth(c.name, FONTS.name), textWidth(c.stereo, FONTS.stereo));
   for (const comp of c.compartments) {
     w = Math.max(w, textWidth(comp.title.toUpperCase(), FONTS.title), ...comp.rows.map((r) => comp.wrap ? Math.min(BOX.wrapW, textWidth(r, FONTS.row)) : textWidth(r, FONTS.row)));

@@ -346,8 +346,14 @@ export function createModel(opts = {}) {
       const doomed = [];
       const walk = (/** @type {string} */ x) => { for (const c of kids.get(x) || []) walk(c); doomed.push(x); };
       if (isRel(e.kind)) doomed.push(id); else walk(id);
-      // connectors to anything being deleted go too
+      // connectors to anything being deleted go too, and flows, transitions and messages
+      // whose ends are deleted (a required reference)
       for (const d of [...doomed]) for (const c of api.connectorsTouching(d)) if (!doomed.includes(c.id)) doomed.unshift(c.id);
+      const req = new Set(doomed);
+      for (const d of [...doomed]) for (const ref of api.referrers(d)) {
+        if (req.has(ref.id)) continue;
+        if (Object.entries(ELEMENTS[ref.kind].props).some(([k, p]) => p.type === 'ref' && p.required && ref.props[k] === d)) { req.add(ref.id); doomed.unshift(ref.id); }
+      }
       const set = new Set(doomed);
       for (const d of doomed) for (const r of [...api.relsFrom(d), ...api.relsTo(d)]) if (!set.has(r.id)) { run({ t: 'del', id: r.id }); set.add(r.id); }
       for (const d of doomed) for (const ref of api.referrers(d)) {

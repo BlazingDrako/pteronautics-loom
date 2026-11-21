@@ -127,7 +127,7 @@ Each milestone ends in something usable and committed. Sizes are relative: S = d
 | M3 ✓ | **ibd and interfaces** (done in 0.4.0) | L | Nested parts, proxy/full/conjugated ports, interface blocks, smart connect, item flows, drag-into nesting, collapse/expand, port compatibility checks. |
 | M4 ✓ | **Requirements and traceability** (done in 0.5.0) | M | Requirement diagram, requirements table, dependency matrix. All requirement relationships, ID schemes, the RFLP trace view, coverage metrics, the Systems V home. |
 | M5 ✓ | **SysML v2 text and projects** (done in 0.6.0) | L | Parser and printer for everything in M1–M4, with round-trip tests. Text pane beside diagrams, both editable. Folder projects with the File System Access API, zip import/export, git-friendly output. |
-| M6 | **Behavior diagrams** | L | Activity, state machine, sequence, use case and package diagrams. Allocation via swimlanes and allocate relationships. |
+| M6 ✓ | **Behavior diagrams** (done in 0.7.0) | L | Activity, state machine, sequence, use case and package diagrams. Allocation via swimlanes and allocate relationships. |
 | M7 | **Analysis and simulation** | L | Units and value types, constraint blocks, the parametric diagram and solver. Verification evidence on requirements with live pass/fail. Activity token simulation and state machine execution. |
 | M8 | **Validation and customization** | M | Rule engine and rule sets, problems panel, canvas badges. Profiles and stereotypes, view presets, themes, shortcut remapping. |
 | M9 | **Interop and documents** | L | Cameo/MagicDraw XMI import (SysML 1.x), ReqIF import/export, CSV/Excel, SysML v2 API client, document generation (HTML/PDF; .docx later). The library reference completed. |

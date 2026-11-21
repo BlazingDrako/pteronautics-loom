@@ -11,6 +11,13 @@ import { h, s, icon, toast, formatKeys } from '../ui/dom.js';
 import { popupMenu } from '../ui/menu.js';
 import { naturalSize, heightAt, wraps, compartmentLines, titleH, BOX, bddKind } from './bdd.js';
 import { reqKind } from './req.js';
+import { actKind } from './act.js';
+import { stmKind } from './stm.js';
+import { ucKind, pkgKind } from './uc.js';
+import { wrapLines } from './measure.js';
+
+/** Diagram kinds drawn by this canvas. */
+const KINDS = /** @type {Record<string, any>} */ ({ bdd: bddKind, req: reqKind, act: actKind, stm: stmKind, uc: ucKind, pkg: pkgKind });
 import { routeAll, pathData } from './route.js';
 import { layered } from './layout.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
@@ -49,7 +56,7 @@ export function createDiagramView(ctx) {
   const { model, diagramId } = ctx;
   const diagram = () => model.get(diagramId);
   /** What this kind of diagram shows and how. @type {import('./bdd.js').DiagramKind} */
-  const K = /** @type {any} */ (diagram()?.kind === 'req' ? reqKind : bddKind);
+  const K = KINDS[/** @type {string} */ (diagram()?.kind)] || bddKind;
   const { canShow } = K;
   /** @type {Camera} */
   const cam = cameras.get(diagramId) || { x: 0, y: 0, k: 1 };
@@ -75,8 +82,10 @@ export function createDiagramView(ctx) {
   const camG = s('g', { class: 'cam' });
   const edgesG = s('g', { class: 'edges' });
   const nodesG = s('g', { class: 'nodes' });
+  /** Containers (lanes, system boundaries, composite states), drawn behind lines and boxes. */
+  const underG = s('g', { class: 'under' });
   const overlayG = s('g', { class: 'overlay' });
-  camG.append(edgesG, nodesG, overlayG);
+  camG.append(underG, edgesG, nodesG, overlayG);
   const defs = s('defs');
   const svg = s('svg', { class: 'dsvg', 'aria-hidden': 'true' }, defs, camG);
   const live = h('div', { class: 'sr-only', 'aria-live': 'polite' });
@@ -86,7 +95,12 @@ export function createDiagramView(ctx) {
   const stage = h('div', { class: 'dstage', tabindex: '0', role: 'application', 'aria-roledescription': 'diagram' }, svg, empty, live, tip);
   const zoomLabel = h('span', { class: 'dzoom mono' });
   const toolbar = h('div', { class: 'dtool', role: 'toolbar', 'aria-label': 'Diagram tools' },
-    K.add.map((a) => h('button', { class: 'btn sm', type: 'button', onclick: () => addNew(a.kind), title: a.title }, icon('plus'), a.label)),
+    K.add.map((/** @type {any} */ a) => h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': a.menu ? 'menu' : undefined, title: a.title,
+      onclick: (/** @type {Event} */ ev) => {
+        if (!a.menu) { addNew(a.kind, a.props); return; }
+        const items = a.menu(model, diagram(), ctx.notation());
+        popupMenu(/** @type {HTMLElement} */ (ev.currentTarget), items.length ? items.map((/** @type {any} */ it) => ({ label: it.label, hint: it.hint, disabled: it.disabled, run: () => (it.place ? placeExisting(it.place) : addNew(it.kind || a.kind, it.props)) })) : [{ label: a.empty || 'Nothing to add', disabled: true, run: () => {} }], { title: a.label });
+      } }, icon('plus'), a.label)),
     h('span', { class: 'dtool-sep' }),
     h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: K.kind === 'req' ? 'Show what the selection breaks down into, comes from, and is satisfied, refined or verified by' : 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
     h('button', { class: 'btn sm', type: 'button', onclick: () => tidy(), title: `Tidy layout (${formatKeys('Shift+L')})` }, icon('layout'), 'Tidy layout'),
@@ -183,43 +197,118 @@ export function createDiagramView(ctx) {
   let raf = 0;
   function invalidate() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); }
 
+  /** Containers go behind those nested in them. @param {SVGElement} g @param {number} depth */
+  function insertUnder(g, depth) {
+    g.dataset.depth = String(depth);
+    const after = [...underG.children].find((x) => Number(/** @type {SVGElement} */ (x).dataset.depth || 0) > depth);
+    if (after) underG.insertBefore(g, after); else underG.append(g);
+  }
+
   /** Build one box. @param {string} id @param {Rect} r @param {boolean} lod */
   function buildNode(id, r, lod) {
     const { content: c } = content(id);
     const selected = sel.has(id);
-    const g = s('g', { class: 'node' + (selected ? ' sel' : ''), 'data-id': id, transform: `translate(${r.x} ${r.y})` });
-    g.append(s('rect', { class: 'box', width: r.w, height: r.h, rx: 10 }));
-    if (c.layerColor) g.append(s('rect', { class: 'strip', x: 12, y: 0, width: Math.max(0, r.w - 24), height: 3, rx: 1.5, style: `fill:${c.layerColor}` }));
+    const shape = c.shape || 'box';
+    const g = s('g', { class: `node shape-${shape}` + (selected ? ' sel' : '') + (c.under ? ' under' : ''), 'data-id': id, transform: `translate(${r.x} ${r.y})` });
     const inner = r.w - BOX.padX * 2;
-    if (lod) {
-      g.append(s('text', { class: 'n-name lod', x: r.w / 2, y: Math.min(r.h / 2 + 6, 40) }, ellipsize(c.name, inner, FONTS.name)));
-    } else {
-      g.append(s('text', { class: 'n-stereo', x: r.w / 2, y: 19 }, ellipsize(c.stereo, inner, FONTS.stereo)));
-      g.append(s('text', { class: 'n-name', x: r.w / 2, y: 37 }, ellipsize(c.name, inner, FONTS.name)));
-      let y = BOX.header;
-      for (const comp of c.compartments) {
-        const th = titleH(comp);
-        if (y + th > r.h) break;
-        if (!comp.joined) g.append(s('line', { class: 'n-sep', x1: 0, x2: r.w, y1: y, y2: y }));
-        if (comp.title) g.append(s('text', { class: 'n-title', x: BOX.padX, y: y + 14 }, ellipsize(comp.title.toUpperCase(), inner, FONTS.title)));
-        let ry = y + th;
-        const lines = compartmentLines(comp, inner);
-        for (const row of lines) {
-          if (ry + BOX.rowH > r.h + 2) break;
-          g.append(s('text', { class: 'n-row' + (comp.wrap ? ' wrap' : ''), x: BOX.padX, y: ry + 12 }, ellipsize(row, inner, FONTS.row)));
-          ry += BOX.rowH;
+    const text = (/** @type {string} */ cls, /** @type {number} */ x, /** @type {number} */ y, /** @type {string} */ t, /** @type {number} */ max, /** @type {string} */ font, anchor = 'middle') =>
+      // inline style: the stylesheet centers names, and a style beats a presentation attribute
+      g.append(s('text', { class: cls, x, y, style: `text-anchor:${anchor}` }, ellipsize(t, Math.max(0, max), font)));
+    const cx = r.w / 2, cy = r.h / 2, rad = Math.max(4, Math.min(r.w, r.h) / 2 - 2);
+    // a label beside a small shape (control nodes, pseudo-states)
+    const outside = () => { if (c.label && !lod) text('n-out', cx, r.h + 14, c.label, 160, FONTS.label); };
+    switch (shape) {
+      case 'circle':
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('circle', { class: 'solid', cx, cy, r: rad }));
+        outside(); break;
+      case 'bullseye':
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('circle', { class: 'ring', cx, cy, r: rad }), s('circle', { class: 'solid', cx, cy, r: Math.max(2, rad - 5) }));
+        outside(); break;
+      case 'circlex':
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('circle', { class: 'ring', cx, cy, r: rad }), s('path', { class: 'cross', d: `M${cx - rad * 0.7} ${cy - rad * 0.7} L${cx + rad * 0.7} ${cy + rad * 0.7} M${cx + rad * 0.7} ${cy - rad * 0.7} L${cx - rad * 0.7} ${cy + rad * 0.7}` }));
+        outside(); break;
+      case 'history':
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('circle', { class: 'ring', cx, cy, r: rad }));
+        text('n-hist', cx, cy + 4.5, c.glyph || 'H', rad * 2, FONTS.name);
+        outside(); break;
+      case 'diamond':
+        g.append(s('polygon', { class: 'box', points: `${cx},1 ${r.w - 1},${cy} ${cx},${r.h - 1} 1,${cy}` }));
+        outside(); break;
+      case 'bar':
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('rect', { class: 'solid', x: 0, y: cy - 3, width: r.w, height: 6, rx: 2 }));
+        outside(); break;
+      case 'actor': {
+        const hx = cx, top = 6;
+        g.append(s('rect', { class: 'hit', width: r.w, height: r.h }), s('circle', { class: 'ring', cx: hx, cy: top + 9, r: 9 }),
+          s('path', { class: 'stick', d: `M${hx} ${top + 18} V${top + 44} M${hx - 16} ${top + 28} H${hx + 16} M${hx} ${top + 44} L${hx - 13} ${top + 64} M${hx} ${top + 44} L${hx + 13} ${top + 64}` }));
+        if (c.stereo && !lod && r.h > 96) text('n-stereo', cx, r.h - 22, c.stereo, r.w - 4, FONTS.stereo);
+        text('n-name', cx, r.h - 6, c.name, r.w - 4, FONTS.name);
+        break;
+      }
+      case 'ellipse': {
+        g.append(s('ellipse', { class: 'box', cx, cy, rx: r.w / 2 - 1, ry: r.h / 2 - 1 }));
+        // text sits in the middle band of the ellipse, where it is widest
+        const w = r.w * 0.78 - 8;
+        const lines = lod ? [ellipsize(c.name, w, FONTS.name)] : wrapLines(c.name, w, FONTS.name, 2);
+        const lh = 17, stereo = c.stereo && !lod && r.h >= 56;
+        const total = lines.length * lh + (stereo ? 14 : 0);
+        let y = cy - total / 2 + (stereo ? 14 : 0) + 12;
+        if (stereo) text('n-stereo', cx, cy - total / 2 + 10, c.stereo, w, FONTS.stereo);
+        for (const l of lines) { text('n-name', cx, y, l, w, FONTS.name); y += lh; }
+        break;
+      }
+      case 'lane':
+        g.append(s('rect', { class: 'lane', width: r.w, height: r.h }), s('rect', { class: 'lane-head', width: r.w, height: 30 }));
+        if (c.layerColor) g.append(s('rect', { class: 'strip', x: 0, y: 0, width: r.w, height: 3, style: `fill:${c.layerColor}` }));
+        text('n-name', cx, 20, c.name, r.w - 16, FONTS.name);
+        break;
+      case 'boundary':
+        g.append(s('rect', { class: 'boundary', width: r.w, height: r.h, rx: 4 }));
+        text('n-stereo', 14, 18, c.stereo, r.w - 28, FONTS.stereo, 'start');
+        text('n-name', 14, 36, c.name, r.w - 28, FONTS.name, 'start');
+        break;
+      case 'region':
+        g.append(s('rect', { class: 'region', width: r.w, height: r.h, rx: 8 }));
+        text('n-title', 10, 15, c.name.toUpperCase(), r.w - 20, FONTS.title, 'start');
+        break;
+      default: {
+        const folder = shape === 'folder';
+        const top = folder ? 14 : 0;
+        if (folder) g.append(s('path', { class: 'box tab', d: `M0 ${top} V3 a3 3 0 0 1 3 -3 H${Math.min(120, r.w * 0.45) - 3} a3 3 0 0 1 3 3 V${top}` }));
+        g.append(s('rect', { class: 'box', y: top, width: r.w, height: r.h - top, rx: shape === 'round' ? 16 : folder ? 3 : 10 }));
+        if (c.layerColor && !folder) g.append(s('rect', { class: 'strip', x: 12, y: 0, width: Math.max(0, r.w - 24), height: 3, rx: 1.5, style: `fill:${c.layerColor}` }));
+        if (lod) {
+          text('n-name lod', cx, Math.min(r.h / 2 + 6, 40) + top, c.name, inner, FONTS.name);
+          break;
         }
-        y += th + lines.length * BOX.rowH + BOX.compPad;
+        text('n-stereo', cx, 19 + top, c.stereo, inner, FONTS.stereo);
+        text('n-name', cx, 37 + top, c.name, inner, FONTS.name);
+        let y = BOX.header + top;
+        for (const comp of c.compartments) {
+          const th = titleH(comp);
+          if (y + th > r.h) break;
+          if (!comp.joined) g.append(s('line', { class: 'n-sep', x1: 0, x2: r.w, y1: y, y2: y }));
+          if (comp.title) g.append(s('text', { class: 'n-title', x: BOX.padX, y: y + 14 }, ellipsize(comp.title.toUpperCase(), inner, FONTS.title)));
+          let ry = y + th;
+          const lines = compartmentLines(comp, inner);
+          for (const row of lines) {
+            if (ry + BOX.rowH > r.h + 2) break;
+            g.append(s('text', { class: 'n-row' + (comp.wrap ? ' wrap' : ''), x: BOX.padX, y: ry + 12 }, ellipsize(row, inner, FONTS.row)));
+            ry += BOX.rowH;
+          }
+          y += th + lines.length * BOX.rowH + BOX.compPad;
+        }
       }
     }
     if (selected && sel.size === 1) {
-      for (const [hx, hy, kind] of /** @type {[number, number, string][]} */ ([[r.w, r.h / 2, 'e'], [r.w / 2, r.h, 's'], [r.w, r.h, 'se']])) {
-        g.append(s('rect', { class: `handle h-${kind}`, 'data-handle': kind, x: hx - 4.5, y: hy - 4.5, width: 9, height: 9, rx: 2 }));
+      const handles = /** @type {[number, number, string][]} */ (c.fixed ? (shape === 'bar' ? [[r.w, r.h / 2, 'e']] : []) : [[r.w, r.h / 2, 'e'], [r.w / 2, r.h, 's'], [r.w, r.h, 'se']]);
+      for (const [hx, hy, kind] of handles) g.append(s('rect', { class: `handle h-${kind}`, 'data-handle': kind, x: hx - 4.5, y: hy - 4.5, width: 9, height: 9, rx: 2 }));
+      if (c.linkable !== false) {
+        // drag from here to another box to relate them
+        const lk = s('g', { class: 'link-handle', 'data-link': id, transform: `translate(${r.w + 14} ${Math.min(14, r.h / 2)})` });
+        lk.append(s('title', {}, K.linkHint || 'Drag to another box to relate them'), s('circle', { r: 9 }), s('path', { d: 'M-3.5 3.5 L3.5 -3.5 M-1 -3.5 H3.5 V1' }));
+        g.append(lk);
       }
-      // drag from here to another box to relate them
-      const lk = s('g', { class: 'link-handle', 'data-link': id, transform: `translate(${r.w + 14} 14)` });
-      lk.append(s('title', {}, 'Drag to another box to relate them'), s('circle', { r: 9 }), s('path', { d: 'M-3.5 3.5 L3.5 -3.5 M-1 -3.5 H3.5 V1' }));
-      g.append(lk);
     }
     return g;
   }
@@ -291,7 +380,9 @@ export function createDiagramView(ctx) {
       const b = built.get(id);
       if (b && b.key === key) continue;
       const g = buildNode(id, r, lod);
-      if (b) b.g.replaceWith(g); else nodesG.append(g);
+      const parent = content(id).content.under ? underG : nodesG;
+      if (b && b.g.parentNode === parent) b.g.replaceWith(g);
+      else { b?.g.remove(); if (parent === underG) insertUnder(g, content(id).content.depth || 0); else parent.append(g); }
       built.set(id, { g, key });
     }
 
@@ -299,14 +390,14 @@ export function createDiagramView(ctx) {
     const geomKey = routeCache.key;
     const routes = routeCache.routes.filter((rt) => visible.has(rt.edge.from) || visible.has(rt.edge.to));
     const selectedEl = ctx.selected();
-    const showRoles = d.props.showRoles !== false && !lod;
+    const showRoles = (K.labelsOn ? K.labelsOn(d) : d.props.showRoles !== false) && !lod;
     const eKey = `${geomKey}|${selectedEl}|${lod}|${routes.length}|${routes.length ? routes[0].edge.id + routes[routes.length - 1].edge.id : ''}`;
     const parts = [];
     if (eKey !== edgesKey) for (const rt of routes) {
       const pts = rt.points, dPath = pathData(pts);
       const on = rt.edge.element === selectedEl;
       parts.push(`<path class="e-hit" data-el="${rt.edge.element}" d="${dPath}"/>`);
-      parts.push(`<path class="edge ${rt.edge.kind}${on ? ' sel' : ''}" d="${dPath}"/>`);
+      parts.push(`<path class="edge ${rt.edge.kind}${rt.edge.dashed ? ' dashed' : ''}${on ? ' sel' : ''}" d="${dPath}"/>`);
       if (rt.edge.kind === 'composition') {
         const p = pts[0], u = { x: Math.sign(pts[1].x - p.x), y: Math.sign(pts[1].y - p.y) }, n = { x: -u.y, y: u.x };
         const q = (/** @type {number} */ a, /** @type {number} */ b) => `${p.x + u.x * a + n.x * b},${p.y + u.y * a + n.y * b}`;
@@ -321,7 +412,9 @@ export function createDiagramView(ctx) {
         const p = pts[0], u = { x: Math.sign(pts[1].x - p.x), y: Math.sign(pts[1].y - p.y) }, n = { x: -u.y, y: u.x };
         const c = { x: p.x + u.x * 7, y: p.y + u.y * 7 };
         parts.push(`<circle class="contain${on ? ' sel' : ''}" cx="${c.x}" cy="${c.y}" r="7"/><path class="contain-x${on ? ' sel' : ''}" d="M${c.x - u.x * 7} ${c.y - u.y * 7} L${c.x + u.x * 7} ${c.y + u.y * 7} M${c.x - n.x * 7} ${c.y - n.y * 7} L${c.x + n.x * 7} ${c.y + n.y * 7}"/>`);
-      } else if (rt.edge.kind === 'dependency') {
+      } else if (rt.edge.kind === 'assoc') {
+        // a plain line (an actor's association with a use case)
+      } else if (rt.edge.kind === 'dependency' || rt.edge.kind === 'flow') {
         const q = pts[pts.length - 1], a = pts[pts.length - 2];
         const u = { x: Math.sign(q.x - a.x), y: Math.sign(q.y - a.y) }, n = { x: -u.y, y: u.x };
         parts.push(`<path class="arrow${on ? ' sel' : ''}" d="M${q.x - u.x * 11 + n.x * 6} ${q.y - u.y * 11 + n.y * 6} L${q.x} ${q.y} L${q.x - u.x * 11 - n.x * 6} ${q.y - u.y * 11 - n.y * 6}"/>`);
@@ -331,7 +424,7 @@ export function createDiagramView(ctx) {
           for (let i = 1; i < pts.length; i++) { const l = Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y); if (l > bl) { bl = l; bi = i; } }
           const s0 = pts[bi - 1], s1 = pts[bi], mx = (s0.x + s1.x) / 2, my = (s0.y + s1.y) / 2;
           const vertical = s0.x === s1.x;
-          const text = esc(ellipsize(rt.edge.label, vertical ? 140 : Math.max(40, bl - 16), FONTS.label));
+          const text = esc(ellipsize(rt.edge.label, vertical ? 160 : Math.max(90, bl - 16), FONTS.label));
           parts.push(vertical
             ? `<text class="e-label dep" x="${mx + 6}" y="${my + 4}" text-anchor="start">${text}</text>`
             : `<text class="e-label dep" x="${mx}" y="${my - 6}" text-anchor="middle">${text}</text>`);
@@ -407,7 +500,7 @@ export function createDiagramView(ctx) {
 
   // ---------- editing ----------
   /** Commit positions. @param {string} label @param {Record<string, Rect | null>} patch */
-  const commit = (label, patch) => ctx.edit(label, (tx) => tx.place(diagramId, patch));
+  const commit = (label, patch) => ctx.edit(label, (tx) => { tx.place(diagramId, patch); K.afterPlace?.(model, tx, diagram(), Object.keys(patch).filter((k) => patch[k])); });
 
   /** A free spot near a point, so new boxes never land on top of others. @param {number} x @param {number} y @param {number} w @param {number} hh */
   function freeSpot(x, y, w, hh) {
@@ -426,25 +519,36 @@ export function createDiagramView(ctx) {
     return base;
   }
 
-  /** @param {string} kind */
-  function addNew(kind) {
+  /** @param {string} kind @param {Record<string, any>} [props] */
+  function addNew(kind, props) {
     const d = diagram();
     if (!d) return;
     const layerPkg = model.layers().find((l) => l.layer === (ELEMENTS[kind].defaultLayer || K.addLayer))?.id;
-    const owner = d.owner && model.canCreate(d.owner, kind) && model.layerOf(d.owner) === ELEMENTS[kind].defaultLayer ? d.owner : layerPkg;
-    if (!owner) return;
+    const owner = K.ownerFor ? K.ownerFor(model, d, kind, [...sel]) : d.owner && model.canCreate(d.owner, kind) && model.layerOf(d.owner) === ELEMENTS[kind].defaultLayer ? d.owner : layerPkg;
+    if (!owner) { toast(`A ${kindName(kind, ctx.notation()).toLowerCase()} cannot be added here`, true); return; }
     const { w, h: hh } = size();
     const c = toWorld(w / 2, hh / 2);
+    const sz = K.newSize?.(kind, props) || { w: kind === 'requirement' ? 240 : 180, h: 60 };
     let id = '';
     if (!ctx.edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
-      id = tx.create(kind, { owner, props: ctx.newProps?.(kind, owner) });
-      const r = freeSpot(c.x - 90, c.y - 30, kind === 'requirement' ? 240 : 180, 60);
+      id = tx.create(kind, { owner, props: { ...ctx.newProps?.(kind, owner), ...props } });
+      const r = freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, sz.w, sz.h);
       tx.place(diagramId, { [id]: r });
+      K.afterPlace?.(model, tx, diagram(), [id]);
     })) return;
     setSel(new Set([id]));
     render();
     revealIfHidden(id); render();
-    startRename(id);
+    if (!K.noRename?.(model.get(id))) startRename(id);
+  }
+  /** Show an element that is already in the model (a lane's block, say). @param {string} id */
+  function placeExisting(id) {
+    if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
+    const e = model.get(id);
+    const { w, h: hh } = size();
+    const c = toWorld(w / 2, hh / 2);
+    const sz = K.dropSize?.(model, diagram(), e, (/** @type {string} */ x) => rectOf(x), shownIds()) || content(id).min;
+    if (commit(`Show ${e?.name}`, { [id]: sz.x !== undefined ? sz : freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, Math.max(sz.w, 60), sz.h) })) setSel(new Set([id]));
   }
 
   /** Show related elements: for blocks, types of parts and generalizations either way. */
@@ -483,11 +587,14 @@ export function createDiagramView(ctx) {
     if (!ids.length) return;
     // boxes grow to show their full text (never shrink: a user may have made one wider on purpose)
     const nodes = ids.map((id) => { const r = rectOf(id); return { id, w: Math.max(r.w, Math.ceil(content(id).min.w / GRID) * GRID), h: r.h }; });
-    const edges = K.edgesFor(model, new Set(ids)).map((e) => ({ from: e.from, to: e.to, kind: e.kind }));
-    const pos = layered(nodes, /** @type {any} */ (edges));
+    const edges = K.edgesFor(model, new Set(ids)).map((/** @type {any} */ e) => ({ from: e.from, to: e.to, kind: e.kind }));
     /** @type {Record<string, Rect>} */
-    const patch = {};
-    for (const n of nodes) { const p = pos.get(n.id); if (p) patch[n.id] = { x: p.x, y: p.y, w: n.w, h: layout()[n.id].h }; }
+    let patch = {};
+    if (K.tidy) patch = K.tidy(model, diagram(), nodes.map((n) => ({ ...n, h: Math.max(layout()[n.id].h, minH(n.id, n.w)) })), edges);
+    else {
+      const pos = layered(nodes, /** @type {any} */ (edges));
+      for (const n of nodes) { const p = pos.get(n.id); if (p) patch[n.id] = { x: p.x, y: p.y, w: n.w, h: layout()[n.id].h }; }
+    }
     commit('Tidy layout', patch);
     fit();
   }
@@ -579,7 +686,9 @@ export function createDiagramView(ctx) {
         setSel(next); drag = null; return;
       }
       if (!sel.has(id)) setSel(new Set([id]));
-      drag = { mode: 'move', start: w, orig: new Map([...sel].map((x) => [x, rectOf(x)])), moved: false };
+      const moving = new Set(sel);
+      if (K.dragsWith) for (const x of sel) for (const y of K.dragsWith(model, diagram(), x, (/** @type {string} */ q) => rectOf(q), shownIds())) moving.add(y);
+      drag = { mode: 'move', start: w, orig: new Map([...moving].map((x) => [x, rectOf(x)])), moved: false };
     } else if (t.closest('.e-hit')) {
       drag = { mode: 'click-edge', el: /** @type {string} */ (/** @type {SVGElement} */ (t.closest('.e-hit')).dataset.el) };
     } else {
@@ -624,7 +733,7 @@ export function createDiagramView(ctx) {
       const a = model.get(linking.from)?.name || '', b = linking.over ? model.get(linking.over)?.name || '' : '';
       if (linking.over) {
         tip.textContent = linking.ok
-          ? `${a} ${linking.kinds.map((k) => RELATIONSHIPS[k].verb[n]).join(' / ')} ${b}`
+          ? `${a} ${linking.kinds.map((k) => linkVerb(k, n)).join(' / ')} ${b}`
           : alreadyLinked(linking.from, linking.over) ? `✕ ${a} and ${b} are already related` : `✕ ${a} cannot be related to ${b} here`;
         tip.classList.toggle('bad', !linking.ok);
         const sb = stage.getBoundingClientRect();
@@ -672,13 +781,20 @@ export function createDiagramView(ctx) {
       const l = linking; linking = null; tip.hidden = true;
       if (l.over && l.kinds.length) {
         const n = ctx.notation();
-        const make = (/** @type {string} */ k) => { if (ctx.edit(`Add ${RELATIONSHIPS[k].names.sysml.toLowerCase()}`, (tx) => tx.link(k, l.from, /** @type {string} */ (l.over)))) toast(`${model.get(l.from)?.name} ${RELATIONSHIPS[k].verb[n]} ${model.get(/** @type {string} */ (l.over))?.name}`); };
+        const make = (/** @type {string} */ k) => {
+          const to = /** @type {string} */ (l.over);
+          let made = '';
+          if (ctx.edit(`Add ${linkName(k)}`, (tx) => { made = K.makeLink ? K.makeLink(model, tx, diagram(), k, l.from, to) : tx.link(k, l.from, to); })) {
+            if (K.makeLink && made) ctx.select(made);
+            else toast(`${model.get(l.from)?.name} ${linkVerb(k, n)} ${model.get(to)?.name}`);
+          }
+        };
         if (l.kinds.length === 1) make(l.kinds[0]);
         else {
           const sb = stage.getBoundingClientRect();
           const anchor = h('div', { class: 'menu-anchor', style: { left: `${ev.clientX - sb.left}px`, top: `${ev.clientY - sb.top}px` } });
           stage.append(anchor);
-          popupMenu(anchor, l.kinds.map((k) => ({ label: `${RELATIONSHIPS[k].verb[n]}`, hint: RELATIONSHIPS[k].names[n], run: () => make(k) })), { title: `${model.get(l.from)?.name} …` });
+          popupMenu(anchor, l.kinds.map((k) => ({ label: linkVerb(k, n), hint: K.linkLabel ? '' : RELATIONSHIPS[k].names[n], run: () => make(k) })), { title: `${model.get(l.from)?.name} …` });
           setTimeout(() => anchor.remove(), 0);
         }
       }
@@ -686,11 +802,16 @@ export function createDiagramView(ctx) {
     invalidate();
   };
 
-  /** The topmost shown box under a world point. @param {{ x: number, y: number }} p */
+  /** How a link kind reads ("satisfies", "then", "on takeoff →"). @param {string} k @param {import('../model/metamodel.js').Notation} n */
+  const linkVerb = (k, n) => (K.linkLabel ? K.linkLabel(k, n) : RELATIONSHIPS[k].verb[n]);
+  /** @param {string} k */
+  const linkName = (k) => (K.linkLabel ? K.linkLabel(k, 'sysml') : RELATIONSHIPS[k].names.sysml.toLowerCase());
+
+  /** The topmost shown box under a world point (boxes in front of containers). @param {{ x: number, y: number }} p */
   function boxAt(p) {
-    let hit = null;
-    for (const [id, r] of allRects) if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) hit = id;
-    return hit;
+    let hit = null, under = null;
+    for (const [id, r] of allRects) if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { if (content(id).content.under) under = id; else hit = id; }
+    return hit || under;
   }
   /** @param {string} a @param {string} b */
   const alreadyLinked = (a, b) => model.relsFrom(a).some((r) => r.target === b);
@@ -750,8 +871,10 @@ export function createDiagramView(ctx) {
     if (!canShow(e)) { toast(K.refuse(e, ctx.notation()), true); return; }
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
     const w = eventWorld(ev);
-    const nat = content(id).min;
-    if (commit('Show on diagram', { [id]: freeSpot(w.x - nat.w / 2, w.y - 24, Math.max(180, nat.w), nat.h) })) setSel(new Set([id]));
+    const nat = K.dropSize?.(model, diagram(), e, (/** @type {string} */ x) => rectOf(x), shownIds()) || content(id).min;
+    if (nat.x !== undefined) { if (commit('Show on diagram', { [id]: nat })) setSel(new Set([id])); return; }
+    const fixed = !!content(id).content.fixed;
+    if (commit('Show on diagram', { [id]: freeSpot(w.x - nat.w / 2, w.y - 24, fixed ? nat.w : Math.max(180, nat.w), nat.h) })) setSel(new Set([id]));
   });
 
   // ---------- keyboard ----------

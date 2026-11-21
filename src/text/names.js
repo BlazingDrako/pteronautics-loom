@@ -1,7 +1,7 @@
 // Names in text: how a reference like 'Battery Pack' or Logical::'Battery Pack' finds its
 // element, and how the printer writes the shortest reference that finds it again.
 // Also the stable keys (qualified names) used to keep element ids across saves.
-import { RELATIONSHIPS, ELEMENTS, isRel, isDiagram } from '../model/metamodel.js';
+import { RELATIONSHIPS, ELEMENTS, isRel, isDiagram, NOT_TRACED } from '../model/metamodel.js';
 import { quoteName } from './lexer.js';
 
 /**
@@ -19,7 +19,7 @@ export const TYPE_KINDS = /** @type {Record<string, string[]>} */ ({ part: ['par
 /** @param {string} rel */
 export function targetKinds(rel) {
   const t = RELATIONSHIPS[rel]?.targets;
-  return t === '*' ? Object.keys(ELEMENTS).filter((k) => k !== 'comment' && !isDiagram(k)) : t || [];
+  return t === '*' ? Object.keys(ELEMENTS).filter((k) => !NOT_TRACED.includes(k) && !isDiagram(k)) : t || [];
 }
 
 /** Name index, built once per tree. @type {WeakMap<object, Map<string, string[]>>} */

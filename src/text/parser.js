@@ -17,6 +17,14 @@
 //   doc /* text */                                             the owner's description
 //   @Loom { key = "value"; flag = true; }                      Loom properties
 //   satisfy R;  verify R;  refine R;  derive R;  copy R;  allocate to X;  dependency to X;
+//   include U;  extend U;  participate in U;  import P::*;
+// Behavior:
+//   start S;  done F;  terminate T;  decide D;  merge M;  fork F;  join J;   control nodes
+//   succession first A then B;   flow from A to B;                         control / object flows
+//   state S { … }   region R { … }
+//   transition first A accept "trigger" if "guard" do "effect" then B;
+//   interaction I { lifeline a : Part; message 'call()' from a to b; fragment F { operand O { … } } }
+//   actor A;   use case U { include V; }
 import { lex, TextError, docText } from './lexer.js';
 
 /** @typedef {import('./lexer.js').Token} Token */
@@ -28,6 +36,8 @@ import { lex, TextError, docText } from './lexer.js';
  *   type?: Ref & { conj: boolean }, mult?: string, spec: Ref[],
  *   direction?: string, value?: string, unit?: string,
  *   end1?: EndPath, end2?: EndPath,
+ *   refs?: Record<string, Ref>,          // references by property: from, to, represents
+ *   fields?: Record<string, string>,     // values written in the declaration: nodeKind, flowKind, trigger…
  *   doc?: string, meta: { key: string, value: string | boolean, line: number, col: number }[],
  *   children: Node[], rels: { kind: string, ref: Ref, line: number }[],
  * }} Node
@@ -60,7 +70,7 @@ export function parse(src) {
   function ref() {
     const t = peek();
     const parts = [name('a name')];
-    while (isSym('::')) { next(); parts.push(name('a name after ::')); }
+    while (isSym('::') && !isSym('*', 1)) { next(); parts.push(name('a name after ::')); }
     return { parts, line: t.line, col: t.col };
   }
   /** @returns {EndPath} */
@@ -143,6 +153,106 @@ export function parse(src) {
         owner.rels.push({ kind: t.v, ref: ref(), line: t.line });
         sym(';');
         return null;
+      }
+      case 'include': case 'extend': {
+        const owner = needParent(t.v);
+        next();
+        owner.rels.push({ kind: t.v, ref: ref(), line: t.line });
+        sym(';');
+        return null;
+      }
+      case 'participate': {
+        const owner = needParent(t.v);
+        next(); word('in');
+        owner.rels.push({ kind: 'participate', ref: ref(), line: t.line });
+        sym(';');
+        return null;
+      }
+      case 'import': {
+        const owner = needParent(t.v);
+        next();
+        const r = ref();
+        // "::*" (every member) is how imports are written; Loom imports whole packages
+        if (isSym('::')) { next(); sym('*'); }
+        else if (isSym('*')) next();
+        owner.rels.push({ kind: 'import', ref: r, line: t.line });
+        sym(';');
+        return null;
+      }
+      case 'start': case 'done': case 'terminate': case 'decide': case 'merge': case 'fork': case 'join': {
+        next();
+        const n = node('controlNode', t);
+        n.fields = { nodeKind: /** @type {Record<string, string>} */ ({ start: 'initial', done: 'final', terminate: 'flowFinal', decide: 'decision', merge: 'merge', fork: 'fork', join: 'join' })[t.v] };
+        if (isNameTok()) n.name = next().v;
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'succession': case 'flow': {
+        next();
+        const n = node('flow', t);
+        const first = t.v === 'succession' ? 'first' : 'from', then = t.v === 'succession' ? 'then' : 'to';
+        if (!isWord(first)) n.name = name('a name');
+        word(first);
+        const from = ref();
+        word(then);
+        n.refs = { from, to: ref() };
+        n.fields = { flowKind: t.v === 'succession' ? 'control' : 'object' };
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'transition': {
+        next();
+        const n = node('transition', t);
+        if (!isWord('first')) n.name = name('a name');
+        word('first');
+        const from = ref();
+        /** @type {Record<string, string>} */
+        const f = {};
+        for (const [kw, key] of [['accept', 'trigger'], ['if', 'guard'], ['do', 'effect']]) {
+          if (!isWord(kw)) continue;
+          next();
+          const v = next();
+          if (v.t !== 'string') fail(v, `Expected "text" after ${kw}`);
+          f[key] = v.v;
+        }
+        word('then');
+        n.refs = { from, to: ref() };
+        n.fields = f;
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'state': case 'region': case 'interaction': case 'fragment': case 'operand': case 'actor': {
+        next();
+        const n = node(t.v === 'actor' ? 'actor' : t.v, t);
+        n.name = name(`a ${t.v} name`);
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'use': {
+        next(); word('case');
+        const n = node('useCase', t);
+        n.name = name('a use case name');
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'lifeline': {
+        next();
+        const n = node('lifeline', t);
+        n.name = name('a lifeline name');
+        if (isSym(':')) { next(); n.refs = { represents: ref() }; }
+        bodyOrEnd(n);
+        return n;
+      }
+      case 'message': {
+        next();
+        const n = node('message', t);
+        n.name = name('a message name');
+        word('from');
+        const from = ref();
+        word('to');
+        n.refs = { from, to: ref() };
+        bodyOrEnd(n);
+        return n;
       }
       case 'allocate': case 'dependency': {
         const owner = needParent(t.v);

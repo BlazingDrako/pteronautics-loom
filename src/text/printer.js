@@ -18,7 +18,13 @@ export const REL_WORDS = /** @type {Record<string, (ref: string) => string>} */ 
   copy: (r) => `copy ${r};`,
   allocate: (r) => `allocate to ${r};`,
   trace: (r) => `dependency to ${r};`,
+  include: (r) => `include ${r};`,
+  extend: (r) => `extend ${r};`,
+  participate: (r) => `participate in ${r};`,
+  import: (r) => `import ${r}::*;`,
 });
+/** Control node keywords. */
+export const CONTROL_WORDS = /** @type {Record<string, string>} */ ({ initial: 'start', final: 'done', flowFinal: 'terminate', decision: 'decide', merge: 'merge', fork: 'fork', join: 'join' });
 /** Properties written in the declaration or as doc, not in @Loom. */
 const IN_DECL = /** @type {Record<string, string[]>} */ ({
   requirement: ['reqId', 'text'],
@@ -27,6 +33,11 @@ const IN_DECL = /** @type {Record<string, string[]>} */ ({
   attribute: ['value', 'unit'],
   connector: ['end1', 'end2'],
   comment: ['doc'],
+  controlNode: ['nodeKind'],
+  flow: ['from', 'to', 'flowKind'],
+  transition: ['from', 'to', 'trigger', 'guard', 'effect'],
+  message: ['from', 'to'],
+  lifeline: ['represents'],
 });
 /** The file each layer is saved in. */
 export const LAYER_FILES = /** @type {Record<string, string>} */ ({ r: 'requirements.sysml', f: 'functional.sysml', l: 'logical.sysml', p: 'physical.sysml' });
@@ -51,6 +62,9 @@ export function printPackage(m, pkgId) {
   /** A connector end as text, relative to its block. @param {any} end */
   const endText = (end) => [...end.path, ...(end.port ? [end.port] : [])].map((id) => quoteName(m.get(id)?.name || '?')).join('.');
 
+  /** A reference to the target of a ref property. @param {string} id @param {Element} e @param {string} [prop] */
+  const ref = (id, e, prop = '') => refText(t, id, e.id, /** @type {any} */ (ELEMENTS[e.kind].props[prop])?.kinds || null);
+
   /** @param {Element} e */
   function decl(e) {
     const q = quoteName(e.name);
@@ -74,6 +88,21 @@ export function printPackage(m, pkgId) {
         return `${e.name && e.name !== plain ? `connection ${q} ` : ''}connect ${a} to ${b}`;
       }
       case 'comment': return `comment ${q} ${docBody(p.doc || '')}`;
+      case 'controlNode': return `${CONTROL_WORDS[p.nodeKind] || 'decide'} ${q}`;
+      case 'flow': {
+        const a = ref(p.from, e, 'from'), b = ref(p.to, e, 'to');
+        const named = e.name && e.name !== `${m.get(p.from)?.name} → ${m.get(p.to)?.name}` ? `${q} ` : '';
+        return p.flowKind === 'object' ? `flow ${named}from ${a} to ${b}` : `succession ${named}first ${a} then ${b}`;
+      }
+      case 'transition': {
+        const named = e.name && e.name !== `${m.get(p.from)?.name} → ${m.get(p.to)?.name}` ? `${q} ` : '';
+        const opt = [p.trigger ? ` accept ${quoteString(p.trigger)}` : '', p.guard ? ` if ${quoteString(p.guard)}` : '', p.effect ? ` do ${quoteString(p.effect)}` : ''].join('');
+        return `transition ${named}first ${ref(p.from, e, 'from')}${opt} then ${ref(p.to, e, 'to')}`;
+      }
+      case 'state': case 'region': case 'interaction': case 'fragment': case 'operand': case 'actor': return `${e.kind} ${q}`;
+      case 'useCase': return `use case ${q}`;
+      case 'lifeline': return `lifeline ${q}${p.represents ? ` : ${ref(p.represents, e, 'represents')}` : ''}`;
+      case 'message': return `message ${q} from ${ref(p.from, e, 'from')} to ${ref(p.to, e, 'to')}`;
       default: if (isDiagram(e.kind)) return `view ${q}`;
     }
     return `// ${e.kind} ${q} cannot be written as text yet`;

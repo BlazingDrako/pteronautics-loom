@@ -8,6 +8,7 @@ import { diagramTests } from './loom/diagram.tests.js';
 import { ibdTests } from './loom/ibd.tests.js';
 import { traceTests } from './loom/trace.tests.js';
 import { textTests } from './loom/text.tests.js';
+import { behaviorTests } from './loom/behavior.tests.js';
 
 /** @typedef {{ name: string, pass: boolean, detail: string, group?: string }} Result */
 /** @typedef {(name: string, pass: unknown, detail?: unknown) => void} Log */
@@ -28,6 +29,7 @@ const SUITES = [
   ['loom', 'Internal block diagrams: connectors, rules, layout', ibdTests],
   ['loom', 'Requirements & traceability: IDs, levels, coverage, views', traceTests],
   ['loom', 'SysML v2 text, folders and zip', textTests],
+  ['loom', 'Behavior: activities, states, sequences, use cases, packages', behaviorTests],
 ];
 
 /** @param {HTMLElement} out @param {HTMLElement} summary */

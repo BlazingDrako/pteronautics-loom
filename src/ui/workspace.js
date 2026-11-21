@@ -17,6 +17,10 @@ import { createVHomeView } from '../views/vhome.js';
 import { nextReqId } from '../model/trace.js';
 import { populateReq } from '../canvas/populate.js';
 import { createTextPane } from './textpane.js';
+import { createSequenceView } from '../canvas/sdview.js';
+import { populateAct } from '../canvas/act.js';
+import { populateStm } from '../canvas/stm.js';
+import { populateUc, populatePkg } from '../canvas/uc.js';
 import { modal, confirm } from './dialog.js';
 import { snapshot } from '../model/serialize.js';
 import { applySnapshot } from '../text/build.js';
@@ -39,7 +43,13 @@ const VIEWS = [
 /** Project views that are not model elements. */
 const PROJECT_VIEWS = /** @type {Record<string, { name: string, icon: string }>} */ ({ 'v:home': { name: 'Systems V', icon: 'vee' }, 'v:trace': { name: 'RFLP trace', icon: 'trace' } });
 /** Tabs for kinds of view. */
-const KIND_ICON = /** @type {Record<string, string>} */ ({ table: 'table', matrix: 'matrix', req: 'req' });
+const KIND_ICON = /** @type {Record<string, string>} */ ({ table: 'table', matrix: 'matrix', req: 'req', act: 'trace', stm: 'diagram', sd: 'list', uc: 'diagram', pkg: 'folder' });
+/** What a diagram must be made inside, when nothing suitable is selected. */
+const DIAGRAM_NEEDS = /** @type {Record<string, string>} */ ({
+  act: 'Select a function first: an activity diagram shows what that function does',
+  stm: 'Select a block first: a state machine shows that block\'s states',
+  ibd: 'Select a block first: an internal block diagram shows its inside',
+});
 /** Kinds the "Tables & matrices" menu lists. */
 const GRID_KINDS = ['table', 'matrix'];
 
@@ -149,6 +159,7 @@ export function mountWorkspace(root, ctx) {
       else if (kind === 'table') v = createTableView(base);
       else if (kind === 'matrix') v = createMatrixView(base);
       else if (kind === 'ibd') v = Object.assign(createIbdView(base), { canvas: true });
+      else if (kind === 'sd') v = createSequenceView(base);
       else v = Object.assign(createDiagramView(base), { canvas: true });
       views.set(id, v);
     }
@@ -156,12 +167,24 @@ export function mountWorkspace(root, ctx) {
   }
   /** Create a diagram in a package (default: the selected one, or the Logical layer), filled with the blocks there. @param {string} kind @param {string | null} [where] */
   function newDiagram(kind, where) {
-    const owner = where || ownerFor(kind);
-    if (!owner) return;
+    let owner = where || ownerFor(kind);
+    // a sequence diagram shows an interaction: make one when none is selected
+    if (!owner && kind === 'sd') owner = ownerFor('interaction');
+    if (!owner) { toast(DIAGRAM_NEEDS[kind] || `Select where the ${kindName(kind, notation()).toLowerCase()} should go`, true); return; }
     const o = /** @type {import('../model/model.js').Element} */ (model.get(owner));
     let id = '';
-    const names = /** @type {Record<string, string>} */ ({ req: `${o.name} requirements`, table: `${o.name} table`, matrix: 'Satisfy matrix' });
+    const names = /** @type {Record<string, string>} */ ({ req: `${o.name} requirements`, table: `${o.name} table`, matrix: 'Satisfy matrix', act: `${o.name} flow`, stm: `${o.name} states`, uc: `${o.name} use cases`, pkg: `${o.name} organization` });
     if (!edit(`New ${kindName(kind, 'sysml').toLowerCase()}`, (tx) => {
+      if (kind === 'sd') {
+        const inter = o.kind === 'interaction' ? owner : tx.create('interaction', { owner, name: 'Scenario' });
+        id = tx.create('sd', { owner: /** @type {string} */ (inter), name: `${model.get(/** @type {string} */ (inter))?.name || 'Scenario'} sequence` });
+        return;
+      }
+      if (kind === 'act' || kind === 'stm' || kind === 'uc' || kind === 'pkg') {
+        id = tx.create(kind, { owner, name: names[kind] });
+        ({ act: populateAct, stm: populateStm, uc: populateUc, pkg: populatePkg })[kind](model, tx, id, notation());
+        return;
+      }
       if (kind === 'ibd') {
         id = tx.create(kind, { owner, name: `${o.name} internals` });
         tx.place(id, packIbd(model, owner, { notation: notation() }));
@@ -189,6 +212,11 @@ export function mountWorkspace(root, ctx) {
       { label: `New ${kindName('bdd', notation())}`, hint: '+', run: () => newDiagram('bdd') },
       { label: `New ${kindName('ibd', notation())}${ownerFor('ibd') ? '' : ' (select a block first)'}`, hint: '+', disabled: !ownerFor('ibd'), run: () => newDiagram('ibd') },
       { label: `New ${kindName('req', notation())}`, hint: '+', run: () => newDiagram('req') },
+      { label: `New ${kindName('act', notation())}${ownerFor('act') ? '' : ' (select a function first)'}`, hint: '+', disabled: !ownerFor('act'), run: () => newDiagram('act') },
+      { label: `New ${kindName('stm', notation())}${ownerFor('stm') ? '' : ' (select a block first)'}`, hint: '+', disabled: !ownerFor('stm'), run: () => newDiagram('stm') },
+      { label: `New ${kindName('sd', notation())}`, hint: '+', run: () => newDiagram('sd') },
+      { label: `New ${kindName('uc', notation())}`, hint: '+', run: () => newDiagram('uc') },
+      { label: `New ${kindName('pkg', notation())}`, hint: '+', run: () => newDiagram('pkg') },
     ], { title: all.length ? 'Open a diagram' : 'No diagrams yet' });
   }
   /** @param {HTMLElement} anchor */
