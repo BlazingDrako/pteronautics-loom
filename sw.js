@@ -4,7 +4,7 @@
 // Every app file is cached when the worker installs. While online, files still come from the
 // network first (so a new version shows up on the next load) and the cache is refreshed;
 // offline, or when the network is slow to answer, the cached copy is used.
-const CACHE = 'loom-1.0.0-3d3fb4e864';
+const CACHE = 'loom-1.0.0-cd9150e0ff';
 const FILES = [
   "index.html",
   "manifest.webmanifest",
@@ -92,6 +92,7 @@ const FILES = [
   "assets/favicon.svg",
   "assets/icon-192.png",
   "assets/icon-512.png",
+  "assets/icon-mac.svg",
   "assets/icon-maskable-512.png",
   "assets/icon-maskable.svg",
   "assets/icon.svg",
