@@ -473,6 +473,9 @@ export function createTableView(ctx) {
     lastWindow = ''; render();
   }
 
+  /** The last press on a cell, to tell a double-click. @type {{ id: string, col: string, t: number, x: number, y: number } | null} */
+  let lastDown = null;
+  const DOUBLE_MS = 500;
   scroller.addEventListener('scroll', () => invalidate(), { passive: true });
   scroller.addEventListener('pointerdown', (ev) => {
     const t = /** @type {HTMLElement} */ (ev.target);
@@ -481,17 +484,17 @@ export function createTableView(ctx) {
     const row = /** @type {HTMLElement | null} */ (t.closest('.trow'));
     if (!cell || !row) return;
     active = { id: /** @type {string} */ (row.dataset.id), col: /** @type {string} */ (cell.dataset.col) };
+    // A second press on the same cell is a double-click: edit it. This is detected here because
+    // the render below rebuilds the cell, so the browser's dblclick never reaches the table.
+    const now = performance.now();
+    const again = !!lastDown && lastDown.id === active.id && lastDown.col === active.col && now - lastDown.t < DOUBLE_MS && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 6;
+    lastDown = again ? null : { ...active, t: now, x: ev.clientX, y: ev.clientY };
     ctx.select(active.id);
     lastWindow = ''; render();
     // the clicked cell was just rebuilt, so the browser would focus nothing: keep keys coming here
     ev.preventDefault();
     scroller.focus({ preventScroll: true });
-  });
-  scroller.addEventListener('dblclick', (ev) => {
-    const t = /** @type {HTMLElement} */ (ev.target);
-    const cell = /** @type {HTMLElement | null} */ (t.closest('.tcell'));
-    const row = /** @type {HTMLElement | null} */ (t.closest('.trow'));
-    if (cell && row && !t.closest('button, .tinput')) startEdit(/** @type {string} */ (row.dataset.id), /** @type {string} */ (cell.dataset.col));
+    if (again) startEdit(active.id, active.col);
   });
   scroller.addEventListener('keydown', (ev) => {
     if (ev.target !== scroller) return;

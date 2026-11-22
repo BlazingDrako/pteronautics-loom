@@ -111,8 +111,8 @@ export function createIcdView(ctx) {
             h('td', { class: 'icd-carries' }, r.carries || h('span', { class: 'muted' }, '—')),
             h('td', { class: 'muted' }, r.via || model.get(r.owner)?.name || ''),
             h('td', { class: 'icd-doc' }, r.doc));
-          tr.addEventListener('click', () => ctx.select(r.connector));
-          tr.addEventListener('dblclick', () => openIbd(r.owner));
+          // selecting re-renders the table, so a double-click is read from the second click's count
+          tr.addEventListener('click', (/** @type {MouseEvent} */ ev) => { if (ev.detail === 2) openIbd(r.owner); else ctx.select(r.connector); });
           return tr;
         }))));
   }
@@ -130,7 +130,7 @@ export function createIcdView(ctx) {
           const list = n2.cells.get(`${i},${j}`) || [];
           if (!list.length) return h('td', { class: 'n2-empty', 'aria-label': `${row.name} to ${col.name}: nothing` });
           const td = h('td', { class: 'n2-cell', title: list.map((r) => `${r.id}: ${r.from} → ${r.to}${r.iface ? ` (${r.iface})` : ''}`).join('\n') },
-            list.map((r) => h('button', { class: 'n2-item', type: 'button', onclick: () => ctx.select(r.connector), ondblclick: () => openIbd(r.owner) }, label(r))));
+            list.map((r) => h('button', { class: 'n2-item', type: 'button', onclick: (/** @type {MouseEvent} */ ev) => { if (ev.detail === 2) openIbd(r.owner); else ctx.select(r.connector); } }, label(r))));
           return td;
         }))))));
   }

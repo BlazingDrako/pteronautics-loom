@@ -198,7 +198,9 @@ export async function uiTests(log) {
     menu?.remove();
 
     // ---------- the properties panel ----------
-    rowOf(prop.id)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    // a double-click as a browser sends it: click (count 1), which re-renders the rows, then click (count 2) on the new row
+    const dbl = (/** @type {string} */ id) => { for (const detail of [1, 2]) rowOf(id)?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail })); };
+    dbl(prop.id);
     await wait();
     const panel = /** @type {HTMLElement} */ (host.querySelector('.ppanel'));
     log('Double-clicking an element opens its properties in a floating panel', !panel.hidden && panel.querySelector('.ppanel-name')?.textContent === 'Propulsion System');
@@ -225,7 +227,7 @@ export async function uiTests(log) {
     log('Deleting the element shown closes the panel', panel.hidden);
     m.undo(); m.undo();
     const diag = find('Air vehicle structure', 'bdd');
-    rowOf(diag.id)?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    dbl(diag.id);
     await wait(80);
     log('Double-clicking a diagram in the browser opens it', !!host.querySelector('.dview .dstage'));
 

@@ -166,7 +166,8 @@ export function createGenericTableView(ctx) {
                 : c.edit === 'bool' && editable ? h('input', { type: 'checkbox', checked: v.raw ? true : undefined, 'aria-label': c.label, onclick: (/** @type {Event} */ ev) => ev.stopPropagation(), onchange: (/** @type {Event} */ ev) => commitCell(e.id, c, /** @type {HTMLInputElement} */ (ev.target).checked) })
                 : v.text || (editable ? h('span', { class: 'muted' }, '—') : ''));
             if (editable && c.edit !== 'bool') {
-              td.addEventListener('dblclick', () => startEdit(e.id, c.id));
+              // selecting re-renders the table, so a double-click is read from the second click's count
+              td.addEventListener('click', (/** @type {MouseEvent} */ ev) => { if (ev.detail === 2) { ev.stopPropagation(); startEdit(e.id, c.id); } });
               td.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === 'F2') { ev.preventDefault(); startEdit(e.id, c.id); } });
             }
             return td;

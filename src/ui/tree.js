@@ -222,6 +222,9 @@ export function createTree(ctx) {
     const t = /** @type {Element} */ (ev.target);
     if (t.closest('[data-twisty]')) { toggle(hit.e.id); return; }
     if (t.closest('[data-add]')) { addMenu(/** @type {HTMLElement} */ (t.closest('[data-add]')), hit.e); return; }
+    // The second click of a double-click opens the row here. The first click re-rendered the
+    // rows, so the browser's own dblclick lands on a row no longer in the page and never arrives.
+    if (ev.detail === 2 && !(ev.metaKey || ev.ctrlKey || ev.shiftKey)) { ev.preventDefault(); activate(hit.e); return; }
     const cur = ctx.selected();
     const top = hit.e.owner === ctx.model.root().id;
     if ((ev.metaKey || ev.ctrlKey) && cur && !top && cur !== hit.e.id) {
@@ -243,16 +246,13 @@ export function createTree(ctx) {
     ctx.select(hit.e.id);
     render();
   });
-  el.addEventListener('dblclick', (ev) => {
-    const hit = rowOf(ev.target);
-    const t = /** @type {Element} */ (ev.target);
-    if (!hit || t.closest('[data-twisty], [data-add]')) return;
-    ev.preventDefault();
-    if (isDiagram(hit.e.kind)) ctx.open(hit.e.id);
-    else if (hit.e.owner === ctx.model.root().id) toggle(hit.e.id);
-    else if (ctx.openProps) ctx.openProps(hit.e.id);
-    else startRename(hit.e.id);
-  });
+  /** What a double-click on a row does: open a diagram, fold a set, or edit the element. @param {Element} e */
+  function activate(e) {
+    if (isDiagram(e.kind)) ctx.open(e.id);
+    else if (e.owner === ctx.model.root().id) toggle(e.id);
+    else if (ctx.openProps) ctx.openProps(e.id);
+    else startRename(e.id);
+  }
   el.addEventListener('contextmenu', (ev) => {
     const hit = rowOf(ev.target);
     if (!hit) return;

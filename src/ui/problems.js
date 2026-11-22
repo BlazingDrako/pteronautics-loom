@@ -109,8 +109,8 @@ export function createProblemsPanel(ctx) {
         const e = m.get(p.id);
         const row = h('div', { class: `prob sev-${p.severity}${sel === p.id ? ' sel' : ''}${i === cursor ? ' cur' : ''}`, role: 'listitem' },
           h('button', { class: 'prob-main', type: 'button', title: `${p.message}\n${ruleTitle(cfg, p.rule)}${RULE_BY_ID.get(p.rule) ? ` · ${RULE_BY_ID.get(p.rule)?.help}` : ''}`,
-            onclick: () => { cursor = i; ctx.select(p.id); render(); },
-            ondblclick: () => ctx.reveal(p.id) },
+            // clicking re-renders the list, so a double-click is read from the second click's count
+            onclick: (/** @type {MouseEvent} */ ev) => { if (ev.detail === 2) { ctx.reveal(p.id); return; } cursor = i; ctx.select(p.id); render(); } },
           h('span', { class: 'prob-ic', 'aria-label': p.severity }, icon(SEV_ICON[p.severity])),
           h('span', { class: 'prob-msg' }, p.message),
           e ? h('span', { class: 'prob-el' }, h('span', { class: 'kbadge' }, ELEMENTS[e.kind]?.abbr || ''), h('span', { class: 'prob-where' }, where(p.id) || kindName(e.kind, n))) : null,
