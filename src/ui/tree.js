@@ -33,6 +33,7 @@ import { worst } from '../validate/engine.js';
  *   open: (id: string) => void,
  *   openProps?: (id: string) => void,
  *   library?: (id: string) => void,
+ *   multiMenu?: (ids: string[]) => import('./menu.js').MenuItem[],
  *   problemsFor?: (id: string) => import('../validate/engine.js').Problem[],
  *   showLines?: () => boolean,
  *   setColor?: (id: string, color: string) => void,
@@ -43,7 +44,7 @@ const LAYER_COLOR = Object.fromEntries(LAYERS.map((l) => [l.id, l.color]));
 /** The colors a set of your own can have. */
 const FILL_HUE = SET_HUE;
 /** The icon a diagram, table or matrix shows in the browser, so views stand apart from elements. */
-export const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
+export const DIAGRAM_ICON = /** @type {Record<string, string>} */ ({ bdd: 'block', ibd: 'part', req: 'requirement', table: 'table', gtable: 'table', matrix: 'matrix', act: 'action', stm: 'state', sd: 'lifeline', uc: 'useCase', pkg: 'package', par: 'constraint' });
 /**
  * The badge in front of an element's name: a diagram's symbol, or the element's short kind.
  * Shared by the model browser and the model overview so the two always look alike.
@@ -75,6 +76,17 @@ export function createTree(ctx) {
   const marker = h('div', { class: 'tree-marker', hidden: true, 'aria-hidden': 'true' });
   /** @type {string | null} */
   let renaming = null;
+  /** More rows selected with ⌘/Ctrl-click or Shift-click, besides the selection itself. @type {Set<string>} */
+  let extra = new Set();
+  /** The selection these extra rows go with (a selection made elsewhere clears them). */
+  let extraWith = /** @type {string | null} */ (null);
+  /** Every selected row: the selection first, then the others in browser order. */
+  function multi() {
+    const sel = ctx.selected();
+    if (!sel || extraWith !== sel) return sel ? [sel] : [];
+    const order = [...el.querySelectorAll('.ti[data-id]')].map((r) => /** @type {string} */ (/** @type {HTMLElement} */ (r).dataset.id));
+    return [sel, ...order.filter((id) => extra.has(id) && id !== sel && ctx.model.get(id))];
+  }
   /** The selection the tree last opened folders for. @type {string | null} */
   let revealed = null;
 
@@ -86,7 +98,7 @@ export function createTree(ctx) {
     const m = ctx.model, n = ctx.notation();
     const kids = kidsOf(e.id);
     const open = ctx.expanded.has(e.id) || (!!keep && kids.length > 0);
-    const sel = ctx.selected() === e.id;
+    const sel = ctx.selected() === e.id || (extraWith === ctx.selected() && extra.has(e.id));
     const layer = m.layerOf(e.id);
     // a set at the top of the model (a core set or one of your own) heads its own section
     const isLayer = e.owner === m.root().id;
@@ -210,7 +222,26 @@ export function createTree(ctx) {
     const t = /** @type {Element} */ (ev.target);
     if (t.closest('[data-twisty]')) { toggle(hit.e.id); return; }
     if (t.closest('[data-add]')) { addMenu(/** @type {HTMLElement} */ (t.closest('[data-add]')), hit.e); return; }
+    const cur = ctx.selected();
+    const top = hit.e.owner === ctx.model.root().id;
+    if ((ev.metaKey || ev.ctrlKey) && cur && !top && cur !== hit.e.id) {
+      // ⌘/Ctrl-click: add or take away a row, keeping the selection
+      if (extraWith !== cur) extra = new Set();
+      if (extra.has(hit.e.id)) extra.delete(hit.e.id); else extra.add(hit.e.id);
+      extraWith = cur; render(); return;
+    }
+    if (ev.shiftKey && cur && !top && cur !== hit.e.id) {
+      // Shift-click: every row from the selection to this one
+      const order = [...el.querySelectorAll('.ti[data-id]')].map((r) => /** @type {string} */ (/** @type {HTMLElement} */ (r).dataset.id));
+      const a = order.indexOf(cur), b = order.indexOf(hit.e.id);
+      if (a >= 0 && b >= 0) {
+        extra = new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1).filter((id) => id !== cur && ctx.model.get(id)?.owner !== ctx.model.root().id));
+        extraWith = cur; render(); return;
+      }
+    }
+    extra = new Set(); extraWith = null;
     ctx.select(hit.e.id);
+    render();
   });
   el.addEventListener('dblclick', (ev) => {
     const hit = rowOf(ev.target);
@@ -226,6 +257,12 @@ export function createTree(ctx) {
     const hit = rowOf(ev.target);
     if (!hit) return;
     ev.preventDefault();
+    const many = multi();
+    if (many.length > 1 && many.includes(hit.e.id) && ctx.multiMenu) {
+      popupMenu(hit.row, ctx.multiMenu(many), { title: `${many.length} selected`, at: { x: ev.clientX, y: ev.clientY } });
+      return;
+    }
+    extra = new Set(); extraWith = null;
     ctx.select(hit.e.id);
     const row = /** @type {HTMLElement} */ (el.querySelector(`[data-id="${hit.e.id}"]`) || hit.row);
     contextMenu(row, hit.e, { x: ev.clientX, y: ev.clientY });
@@ -482,5 +519,5 @@ export function createTree(ctx) {
   }
 
   render();
-  return { el, render, startRename, focus: focusSelected, collapseAll, setFilter, filtering: () => !!filter };
+  return { el, render, startRename, focus: focusSelected, collapseAll, setFilter, filtering: () => !!filter, multi, clearMulti: () => { extra = new Set(); extraWith = null; render(); } };
 }

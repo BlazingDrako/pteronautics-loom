@@ -29,7 +29,7 @@ const frame = () => new Promise((r) => requestAnimationFrame(() => r(undefined))
  */
 export async function diagramSvg(m, id, notation) {
   const d = m.get(id);
-  if (!d || d.kind === 'table' || d.kind === 'matrix') return null;
+  if (!d || d.kind === 'table' || d.kind === 'matrix' || d.kind === 'gtable') return null;
   const nodes = Object.values(d.layout?.nodes || {});
   if (d.kind !== 'sd' && !nodes.length) return null;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

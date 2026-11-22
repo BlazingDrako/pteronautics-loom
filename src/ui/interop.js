@@ -13,6 +13,7 @@ import { createApiClient, modelFromApi, apiElementsOf } from '../interop/api.js'
 import { buildDocument, SECTIONS, documentDiagrams, loadFonts, printHtml } from '../interop/docs.js';
 import { diagramSvg } from '../interop/snapshot.js';
 import { InteropError } from '../interop/xml.js';
+import { diagramPicture, toPng, pictureName } from '../interop/image.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../interop/reqs.js').ReqRecord} ReqRecord */
@@ -308,4 +309,91 @@ export async function sendToApi(m) {
     keepUrl(c.base);
     toast(`Sent ${elements.length} elements to “${r.name}” on ${c.base}${left ? ` (${left} Loom elements have no SysML v2 form yet)` : ''}`);
   } catch (e) { toast(e instanceof InteropError || e instanceof ModelError ? e.message : `Could not send: ${e instanceof Error ? e.message : e}`, true); }
+}
+
+// ---------- a diagram as a picture ----------
+
+const IMG_KEY = 'loom-image-options';
+/** @returns {{ format: 'png' | 'svg', scale: number, frame: boolean }} */
+function imageOptions() {
+  const o = { format: /** @type {'png' | 'svg'} */ ('png'), scale: 2, frame: true };
+  try { const v = JSON.parse(localStorage.getItem(IMG_KEY) || 'null'); if (v) { if (v.format === 'svg' || v.format === 'png') o.format = v.format; if ([1, 2, 4].includes(v.scale)) o.scale = v.scale; if (typeof v.frame === 'boolean') o.frame = v.frame; } } catch { /* storage blocked */ }
+  return o;
+}
+
+/**
+ * Copy or download one diagram as a picture. With `quick`, copy at once with the last options.
+ * @param {Model} m @param {string} id @param {import('../model/metamodel.js').Notation} notation @param {{ quick?: boolean }} [o]
+ */
+export async function imageDialog(m, id, notation, o = {}) {
+  const d = m.get(id);
+  if (!d || d.kind === 'table' || d.kind === 'matrix' || d.kind === 'gtable') { toast('Open a diagram first (tables and matrices export to Excel)', true); return; }
+  let opts = imageOptions();
+  /** @type {'copy' | 'download'} */
+  let action = 'copy';
+  if (!o.quick) {
+    const r = await modal({
+      title: `Picture of ${d.name}`, ok: 'Copy',
+      build: (done) => {
+        const seg = (/** @type {string} */ label, /** @type {[any, string][]} */ list, /** @type {() => any} */ get, /** @type {(v: any) => void} */ put) => {
+          const el = h('div', { class: 'seg seg-full', role: 'group', 'aria-label': label });
+          const paint = () => el.replaceChildren(...list.map(([v, l]) => h('button', { type: 'button', 'aria-pressed': String(get() === v), onclick: () => { put(v); paint(); paintScale(); } }, l)));
+          paint();
+          return el;
+        };
+        const fmt = seg('Format', [['png', 'PNG'], ['svg', 'SVG']], () => opts.format, (v) => { opts.format = v; });
+        const scale = seg('Scale', [[1, '1×'], [2, '2×'], [4, '4×']], () => opts.scale, (v) => { opts.scale = v; });
+        const scaleRow = h('div', { class: 'field-label' }, 'Size', scale, h('small', {}, '2× is sharp on most screens and slides; 4× for print.'));
+        const paintScale = () => { scaleRow.hidden = opts.format !== 'png'; };
+        paintScale();
+        const frame = h('input', { type: 'checkbox', checked: opts.frame || undefined, onchange: () => { opts.frame = frame.checked; } });
+        const dlBtn = h('button', { class: 'btn', type: 'button', onclick: () => { action = 'download'; done(true); } }, icon('download'), 'Download');
+        return {
+          body: h('div', {},
+            h('div', { class: 'field-label' }, 'Format', fmt, h('small', {}, 'PNG pastes anywhere. SVG stays sharp at any size (slides, wikis, Word).')),
+            scaleRow,
+            h('label', { class: 'check-row' }, frame, h('span', {}, 'Draw the SysML frame with the diagram\'s name')),
+            h('div', { class: 'img-actions' }, dlBtn, h('small', {}, 'or Copy to paste it straight into slides, mail or chat.'))),
+          value: () => true,
+        };
+      },
+    });
+    if (!r) return;
+    try { localStorage.setItem(IMG_KEY, JSON.stringify(opts)); } catch { /* storage blocked */ }
+  }
+  toast('Drawing the picture…');
+  const picP = diagramPicture(m, id, notation, { frame: opts.frame }).catch((e) => { console.warn(e); return null; });
+  const name = pictureName(d.name, opts.format);
+  try {
+    if (opts.format === 'png' && action === 'copy' && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+      // hand the clipboard a promise straight away, while the click still counts (Safari needs this)
+      let used = opts.scale;
+      const blobP = picP.then(async (pic) => { if (!pic) throw new Error('This diagram has nothing to draw yet'); const png = await toPng(pic, opts.scale); used = png.scale; return png.blob; });
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobP })]);
+        toast(`Copied the picture${used < opts.scale ? ` (at ${used}×: the diagram is too big for ${opts.scale}×)` : ''}`);
+      } catch (e) {
+        // the browser refused the clipboard (permission, or the page lost focus): save it instead
+        const blob = await blobP;
+        download(name, /** @type {any} */ (blob), 'image/png');
+        toast(`The browser would not let Loom copy, so it saved ${name} instead`);
+      }
+      return;
+    }
+    const pic = await picP;
+    if (!pic) { toast('This diagram has nothing to draw yet', true); return; }
+    if (opts.format === 'svg') {
+      if (action === 'copy') {
+        try { await navigator.clipboard.writeText(pic.svg); toast('Copied the SVG (as text: paste it into Figma, a wiki or an .svg file)'); }
+        catch { download(name, pic.svg, 'image/svg+xml'); toast(`The browser would not let Loom copy, so it saved ${name} instead`); }
+      }
+      else { download(name, pic.svg, 'image/svg+xml'); toast(`Saved ${name}`); }
+      return;
+    }
+    const png = await toPng(pic, opts.scale);
+    download(name, /** @type {any} */ (png.blob), 'image/png');
+    toast(`${action === 'copy' ? 'This browser cannot copy pictures: saved' : 'Saved'} ${name}${png.scale < opts.scale ? ` (at ${png.scale}×: the diagram is too big for ${opts.scale}×)` : ''}`);
+  } catch (e) {
+    toast(e instanceof Error && e.message ? e.message : 'Could not make the picture', true);
+  }
 }

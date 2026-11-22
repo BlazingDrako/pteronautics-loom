@@ -132,6 +132,7 @@ Each milestone ends in something usable and committed. Sizes are relative: S = d
 | M8 ✓ | **Validation and customization** (done in 0.9.0) | M | Rule engine and rule sets, problems panel, canvas badges. Profiles and stereotypes, view presets, themes, shortcut remapping. |
 | M9 ✓ | **Interop and documents** (done in 0.10.0) | L | Cameo/MagicDraw XMI import (SysML 1.x), ReqIF import/export, CSV/Excel, SysML v2 API client, document generation (HTML/PDF; .docx later). The library reference completed. |
 | M10 ✓ | **Desktop, polish, launch** (done in 1.0.0; the Tauri project is written but not yet built) | M | PWA (installable, offline), Tauri build, performance hardening, sample models, docs. Loom added to the Pteronautics family table and site alongside Atlas and Works. |
+| M11 | **Everyday tools and Cameo parity** (in progress, 1.2.0) | L | See section 10. |
 | opt | **Works integration** | S–M | After M7: the Integrations switch, value bindings, Works runs as evidence. Off by default. |
 | later | **Collaboration** | L | Model-aware diff and merge (by element id), in-app git history (isomorphic-git, MIT), then optional real-time editing. After v1.0. |
 
@@ -187,3 +188,42 @@ These are checked by a benchmark page (`tests/bench.html`) on generated models.
 5. `src/model/store.js` + `tx.js`: the element graph, indices, transactions, undo/redo, change events, with tests.
 6. The model browser and inspector wired to the store, plus autosave to IndexedDB.
 7. `git init`, a first commit authored by Andrew only, then the `pteronautics-loom` GitHub repo when you're ready to push.
+
+## 10. M11: everyday tools and Cameo parity
+
+Chosen with the owner on 2026-11-22: the tools people reach for every day in a diagram editor, and the Cameo views engineers expect. ✓ = done.
+
+**Diagram editing**
+- ✓ **Align and distribute**: align edges and centers, space evenly across or down, make the same width, height or size. Arrange menu on every block, behavior and internal block diagram, and in the command palette. Moves what goes with a box (a state's insides, a part's nested parts and ports); one undo step.
+- ✓ **Pictures of a diagram**: copy or download as PNG (1×, 2×, 4×, scaled down to what browsers can draw) or SVG, with fonts embedded and an optional SysML frame header (`bdd [package] Logical [Air vehicle structure]`). Mod+Alt+C copies at once. If the browser refuses the clipboard, the file is saved instead.
+- ✓ **Format painter**: copy a box's look (its fill, and its size for boxes of the same kind) and paste it onto others, on any diagram (Alt+Shift+C, Alt+Shift+V, or the Color menu).
+- ✓ **Quick-add in place**: start typing on a diagram (or double-click empty space) and a field opens there. A name adds the diagram's main kind; a kind word first picks another (`interface DC Power`, `test …`, `actor …`); a variant by name (`fork`, `decision`); on block diagrams `battery : Battery Pack [2]` adds a part to the selected block (making the type if needed) and `Li-ion :> Battery` specializes; on requirement diagrams `Name: text`; `;` adds several. One undo step.
+- ✓ **Tab for the next one**: a new box of the same kind beside the selected one, named at once; in activities and state machines it goes below and is joined by a flow or transition, so Tab, name, Tab, name builds a sequence. (Enter still renames.)
+- ✓ **Quick-add on internal block diagrams**: `Battery Pack` (a part typed by it), `battery : Battery Pack [2]`, `out pwrOut : DC Power` (a port; in, out or inout; the interface is found or made), inside the selected part or the frame, in free space. Tab on a part opens the field beside it for the next part; on a port, for the next port (same direction).
+- ✓ **Drag out to create**: drag from a box's handle onto empty space and choose what to make there, already connected: every new element the diagram can hold that can be related to it, either way (each is tried in a transaction that is rolled back, so the list is exactly what the model allows); on block diagrams also a new block as a part. On internal block diagrams, drag a port onto empty space for a new part there with a matching port, already connected; naming it names the new block, its part and the connector.
+- **Diagram frames and legends**: an optional frame and a color legend drawn on the diagram itself (the picture export already draws the frame).
+
+**Navigation**
+- ✓ **Back and forward** between views (Mod+[ and Mod+]), like a browser; deleted diagrams are skipped.
+- ✓ **Breadcrumbs** under the tabs: where the open diagram sits in the model, each step a link.
+- **Hover peeks**: hover a part's type or a requirement in a trace for a small card of its compartments.
+
+**Model work**
+- ✓ **Find and replace** (Mod+Shift+F) across names, requirement text, descriptions and other text: match case, whole words, patterns with $1; each match keeps its case; a preview where each place can be left out; optionally only inside the selected package; one undo step.
+- ✓ **Bulk edit**: set one property on many elements (the boxes selected on a diagram, the rows selected in the model browser, the rows a requirements table shows with **Set…**, or every element of a kind in a package). Stereotypes still to come.
+- ✓ **Multi-select in the model browser** (⌘/Ctrl-click, Shift-click), with a menu for the selection: show on a new diagram, set a property, delete.
+- ✓ **Diagram from the selection**: a requirement, package or block definition diagram of the rows selected, laid out, in the package that holds them all.
+- **Generate related diagrams**: from a block, its ibd (parts and ports placed), a state machine skeleton, or a requirement diagram of everything that traces to it.
+- **Templates and snippets**: save a model fragment (a power subsystem with ports and constraints) and drop it into any project.
+
+**Cameo parity: views**
+- ✓ **Interface control document (ICD)**: every connector inside a block (and inside its parts, as seen from it): ID, ends, ports and their directions, interface block, item flow, flow direction, what the interface carries, description. Filter, click to select, double-click for the ibd; Excel and CSV.
+- ✓ **N² chart**: a block's parts on the diagonal, what flows between them in the cells, the outside world as "External"; Excel and CSV.
+- ✓ **Generic tables**: any kinds of element as rows (blocks, parts, ports, values, functions, test cases…), inside the table's package or the whole model; columns chosen and ordered from the element (name, kind, owner, path, stereotypes, description), every property of the kinds, members (parts with types, ports, values with their units), relationships either way (satisfies, satisfied by, allocated to…), and tagged values. Edit names, properties, descriptions and tagged values in place; sort by any column; filter; Set… on the rows shown; Excel and CSV. Saved in the SysML text like any view. Expression columns are still to come.
+- **Instance tables and configurations**: values of a block for named configurations (a light and a heavy variant), side by side.
+- **Relation map**: a radial graph of everything an element touches, a chosen number of levels deep.
+- **Content diagram**: a page of links and thumbnails to the model's diagrams, for reviews and navigation.
+- **Hyperlinks and notes**: link any element or diagram to another, a file or a URL; notes and comment callouts on diagrams.
+
+**Reviews**
+- **Presentation mode**: step through chosen diagrams full screen, with Run animations.

@@ -1,6 +1,7 @@
 // Pteronautics Loom: startup, routing, commands and keyboard shortcuts.
 //   #/            Home: your projects
 //   #/p/<id>      a project's workspace
+import { ARRANGE } from './canvas/arrange.js';
 import { initTheme, toggleTheme, toast, IS_MAC, applyLook } from './ui/dom.js';
 import { openPreferences } from './ui/prefs.js';
 import { createSettings } from './settings.js';
@@ -106,6 +107,8 @@ commands.add({
 // ---------- editing ----------
 commands.add({ id: 'edit.undo', title: 'Undo', group: 'Edit', keys: 'Mod+Z', enabled: () => !!ws?.model.canUndo(), run: () => ws?.model.undo() });
 commands.add({ id: 'edit.redo', title: 'Redo', group: 'Edit', keys: 'Mod+Shift+Z', enabled: () => !!ws?.model.canRedo(), run: () => ws?.model.redo() });
+commands.add({ id: 'edit.replace', title: 'Find and replace…', group: 'Edit', keys: 'Mod+Shift+F', keywords: ['search', 'replace', 'rename', 'substitute', 'find', 'text', 'regex'], enabled: inProject, run: () => ws?.findReplace() });
+commands.add({ id: 'edit.bulk', title: 'Set a property on many elements (bulk edit)…', group: 'Edit', keywords: ['bulk', 'batch', 'many', 'multiple', 'priority', 'status', 'set all', 'mass edit'], enabled: inProject, run: () => ws?.bulkEdit() });
 commands.add({ id: 'element.rename', title: 'Rename the selected element', group: 'Edit', keys: 'F2', enabled: () => !!ws?.canRenameSelection(), run: () => ws?.rename() });
 commands.add({ id: 'element.delete', title: 'Delete the selected element', group: 'Edit', keys: 'Delete', keywords: ['remove'], enabled: () => !!ws?.canEditSelection(), run: () => ws?.remove() });
 commands.add({ id: 'element.deselect', title: 'Clear the selection', group: 'Edit', keys: 'Escape', enabled: () => !!ws?.selected(), run: () => ws?.select(null) });
@@ -124,7 +127,9 @@ commands.add({ id: 'diagram.new.bdd', group: 'Diagram', get title() { return `Ne
 commands.add({ id: 'diagram.new.ibd', group: 'Diagram', get title() { return `New ${kindName('ibd', notation())} for the selected block`; }, keywords: ['ibd', 'internal', 'ports', 'connectors', 'create'], enabled: () => !!ws?.canNew('ibd'), run: () => ws?.newDiagram('ibd') });
 commands.add({ id: 'diagram.new.req', group: 'Diagram', get title() { return `New ${kindName('req', notation())}`; }, keywords: ['req', 'requirements', 'satisfy', 'verify', 'derive', 'create'], enabled: () => !!ws?.canNew('req'), run: () => ws?.newDiagram('req') });
 commands.add({ id: 'view.table.new', group: 'Views', get title() { return `New ${kindName('table', notation())}`; }, keywords: ['table', 'grid', 'spreadsheet', 'requirements', 'create'], enabled: () => !!ws?.canNew('table'), run: () => ws?.newDiagram('table') });
+commands.add({ id: 'view.gtable.new', group: 'Views', get title() { return `New ${kindName('gtable', notation())} (any kinds of element, columns you choose)`; }, keywords: ['generic table', 'table', 'grid', 'spreadsheet', 'blocks', 'parts', 'ports', 'columns', 'create', 'instance'], enabled: () => !!ws?.canNew('gtable'), run: () => ws?.newDiagram('gtable') });
 commands.add({ id: 'view.matrix.new', group: 'Views', get title() { return `New ${kindName('matrix', notation())}`; }, keywords: ['matrix', 'dependency', 'grid', 'allocation', 'satisfy', 'create'], enabled: () => !!ws?.canNew('matrix'), run: () => ws?.newDiagram('matrix') });
+commands.add({ id: 'view.icd', title: 'Open the interfaces (ICD table and N² chart)', group: 'Views', keywords: ['icd', 'interface control document', 'n2', 'n squared', 'n²', 'connectors', 'ports', 'item flows', 'interfaces'], enabled: inProject, run: () => { const s = ws?.selected() ? ws.model.get(/** @type {string} */ (ws.selected())) : undefined; ws?.openIcd(s?.kind === 'partDef' ? s.id : undefined); } });
 commands.add({ id: 'view.home', title: 'Open the Systems V', group: 'Views', keywords: ['vee', 'home', 'progress', 'lifecycle', 'verification'], enabled: inProject, run: () => ws?.openDiagram('v:home') });
 commands.add({ id: 'view.trace', title: 'Open the RFLP trace', group: 'Views', keywords: ['traceability', 'coverage', 'thread', 'gaps', 'lanes'], enabled: inProject, run: () => ws?.openDiagram('v:trace') });
 commands.add({ id: 'view.table', title: 'Open the requirements table', group: 'Views', keywords: ['requirements', 'list', 'grid', 'csv', 'excel'], enabled: inProject, run: () => ws?.openOrCreate('table') });
@@ -139,6 +144,17 @@ commands.add({ id: 'diagram.zoomIn', title: 'Zoom in', group: 'Diagram', enabled
 commands.add({ id: 'diagram.zoomOut', title: 'Zoom out', group: 'Diagram', enabled: inDiagram, run: () => ws?.activeView()?.zoomOut() });
 commands.add({ id: 'diagram.tidy', title: 'Tidy the diagram layout', group: 'Diagram', keywords: ['auto layout', 'arrange'], enabled: inDiagram, run: () => ws?.activeView()?.tidy() });
 commands.add({ id: 'diagram.related', title: 'Add related blocks to the diagram', group: 'Diagram', keywords: ['parts', 'types', 'generalization', 'show'], enabled: inDiagram, run: () => ws?.activeView()?.addRelated() });
+commands.add({ id: 'nav.back', title: 'Go back to the previous view', group: 'View', keys: 'Mod+[', keywords: ['history', 'previous', 'back', 'navigate'], enabled: () => !!ws?.canNavigate(-1), run: () => ws?.navigate(-1) });
+commands.add({ id: 'nav.forward', title: 'Go forward', group: 'View', keys: 'Mod+]', keywords: ['history', 'next', 'forward', 'navigate'], enabled: () => !!ws?.canNavigate(1), run: () => ws?.navigate(1) });
+commands.add({ id: 'diagram.image', title: 'Copy or download the diagram as a picture (PNG, SVG)…', group: 'Diagram', keywords: ['image', 'picture', 'png', 'svg', 'export', 'screenshot', 'slides', 'clipboard'], enabled: () => !!ws?.canImage(), run: () => ws?.diagramImage() });
+commands.add({ id: 'diagram.copyImage', title: 'Copy the diagram as a picture', group: 'Diagram', keys: 'Mod+Alt+C', keywords: ['image', 'picture', 'png', 'clipboard', 'paste', 'slides'], enabled: () => !!ws?.canImage(), run: () => ws?.diagramImage({ quick: true }) });
+for (const a of ARRANGE) {
+  commands.add({ id: `arrange.${a.id}`, title: a.label, group: 'Arrange', keywords: ['align', 'arrange', 'distribute', 'tidy', a.group, 'layout'], enabled: () => (ws?.activeView()?.selection().length || 0) >= a.min && !!ws?.activeView()?.arrange, run: () => ws?.activeView()?.arrange?.(a.id) });
+}
+commands.add({ id: 'format.copy', title: 'Copy the selected box\'s look (format painter)', group: 'Diagram', keys: 'Alt+Shift+C', keywords: ['format painter', 'style', 'color', 'fill', 'size', 'copy'], enabled: () => !!ws?.activeView()?.copyLook && ws?.activeView()?.selection().length === 1, run: () => ws?.activeView()?.copyLook?.() });
+commands.add({ id: 'format.paste', title: 'Paste a copied look onto the selected boxes', group: 'Diagram', keys: 'Alt+Shift+V', keywords: ['format painter', 'style', 'color', 'fill', 'size', 'paste'], enabled: () => !!ws?.activeView()?.pasteLook && !!ws?.activeView()?.selection().length, run: () => ws?.activeView()?.pasteLook?.() });
+commands.add({ id: 'diagram.fromSelection', title: 'New diagram from the rows selected in the model browser', group: 'Diagram', keywords: ['selection', 'create', 'show', 'diagram of these', 'bdd', 'requirements'], enabled: () => (ws?.browserSelection().length || 0) > 0, run: () => { const ids = ws?.browserSelection() || []; if (ids.length) ws?.diagramFrom(ids); } });
+commands.add({ id: 'diagram.quickAdd', title: 'Add to the diagram by typing (or just start typing on it)', group: 'Diagram', keywords: ['quick add', 'type', 'create', 'new block', 'part', 'fast'], enabled: () => !!ws?.activeView()?.openQuick, run: () => ws?.activeView()?.openQuick?.() });
 commands.add({ id: 'diagram.remove', title: 'Remove the selection from the diagram (keep in model)', group: 'Diagram', keywords: ['hide'], enabled: () => !!ws?.activeView()?.selection().length, run: () => ws?.activeView()?.removeFromView() });
 
 /** Model elements as palette items, so typing a name jumps to it. @returns {import('./commands.js').Command[]} */

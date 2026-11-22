@@ -6,7 +6,7 @@
 //   Drag a message up or down to move it, into or out of fragments.
 //   Drag a lifeline's head left or right to reorder lifelines.
 //   Double-click a message or a head to rename it. Delete removes the selection.
-import { h, s, icon, toast } from '../ui/dom.js';
+import { h, s, icon, toast, formatKeys } from '../ui/dom.js';
 import { worst } from '../validate/engine.js';
 import { popupMenu } from '../ui/menu.js';
 import { ellipsize, FONTS, textWidth } from './measure.js';
@@ -151,7 +151,8 @@ export function createSequenceView(ctx) {
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', onclick: () => { k = Math.max(0.4, k / 1.2); render(); } }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', onclick: () => { k = Math.min(2.5, k * 1.2); render(); } }, icon('plus')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', onclick: () => fit() }, icon('fit')));
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', onclick: () => fit() }, icon('fit')),
+    ctx.image ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Copy or download as a picture', title: `Copy or download as a picture (PNG, SVG). ${formatKeys('Mod+Alt+C')} copies at once`, onclick: () => ctx.image?.() }, icon('image')) : null);
   const dbody = h('div', { class: 'dbody' }, palette.el, stage);
   const el = h('div', { class: 'dview sdview' }, toolbar, dbody);
   /** What the run panel lights up. */

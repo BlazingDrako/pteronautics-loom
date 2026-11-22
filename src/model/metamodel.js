@@ -234,6 +234,18 @@ export const ELEMENTS = {
     },
     help: 'A grid of two sets of elements with a mark wherever a relationship joins them. Click a cell to add or remove the relationship.',
   },
+  gtable: {
+    names: { sysml: 'Generic table', v2: 'grid view', guided: 'Table' }, abbr: 'gt', defaultLayer: 'l', diagram: true,
+    owners: ['package'],
+    props: {
+      rowKinds: { type: 'text', label: 'Rows', default: 'partDef', hidden: true },
+      scope: { type: 'text', label: 'Scope', default: 'package', hidden: true },
+      columns: { type: 'text', label: 'Columns', default: '', hidden: true },
+      sort: { type: 'text', label: 'Sort', default: '', hidden: true },
+      doc: DOC,
+    },
+    help: 'Any kinds of element as rows (blocks, parts, ports, values, functions, test cases…), inside this table\'s package or in the whole model, with the columns you choose: properties, members, related elements either way and tagged values. Edit cells in place, sort, filter and export to Excel or CSV.',
+  },
   // ---------- behavior (M6) ----------
   controlNode: {
     names: { sysml: 'Control node', v2: 'control node', guided: 'Flow point' }, abbr: 'ctl',

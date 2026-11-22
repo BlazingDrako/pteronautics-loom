@@ -2,6 +2,7 @@
 // Cells edit in place (Enter or double-click; typing starts editing), headers sort, columns
 // can be chosen, reordered by the Columns menu and resized by dragging, and the table exports
 // to CSV. Rows are virtualized, so tens of thousands of requirements scroll smoothly.
+import { bulkEditDialog } from '../ui/bulk.js';
 import { h, icon, toast, formatKeys } from '../ui/dom.js';
 import { popupMenu } from '../ui/menu.js';
 import { confirm } from '../ui/dialog.js';
@@ -166,6 +167,7 @@ export function createTableView(ctx) {
     search, gapsBtn,
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => columnsMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('columns'), 'Columns'),
     h('button', { class: 'btn sm', type: 'button', title: 'Give every requirement here a fresh ID, in order', onclick: () => renumberAll() }, icon('hash'), 'Renumber'),
+    h('button', { class: 'btn sm', type: 'button', title: 'Set a property (priority, status, method…) on every row shown: filter first to choose which', onclick: () => { if (!rows.length) { toast('No rows shown'); return; } bulkEditDialog(model, ctx.edit, rows.map((r) => r.el.id), { notation: ctx.notation(), what: state.filter || state.gapsOnly ? `The ${rows.length} rows shown (filtered)` : `All ${rows.length} rows` }); } }, icon('sliders'), 'Set…'),
     h('button', { class: 'btn sm', type: 'button', title: 'Download the rows shown as an Excel workbook', onclick: () => exportXlsx() }, icon('download'), 'Excel'),
     h('button', { class: 'btn sm', type: 'button', title: 'Download the rows shown as a CSV file', onclick: () => exportCsv() }, icon('download'), 'CSV'),
     h('span', { style: { flex: '1' } }),

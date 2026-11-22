@@ -11,12 +11,15 @@ import { stereoFill } from '../custom/stereo.js';
 import { worst } from '../validate/engine.js';
 import { presetItems } from './view.js';
 import { popupMenu } from '../ui/menu.js';
+import { ARRANGE, arrange, arrangeMenu } from './arrange.js';
 import { ibdScene, packIbd, routeConnectors, partLabel, portLabel, snapToBorder, sideOf, containerAt, PORT, PART } from './ibd.js';
 import { canConnect, orderEnds, matchingPort, effectiveDirection } from './connect.js';
 import { pathData } from './route.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { FRAME, parseKey, partKey, portKey, ownerKey } from '../model/paths.js';
 import { kindName } from '../model/metamodel.js';
+import { ModelError } from '../model/model.js';
+import { parseIbdQuick, IBD_HELP } from './quickadd.js';
 import { createToolPalette } from './tools.js';
 import { shapeRoute, moveSegment, nearestSegment, lineToKeep } from './lines.js';
 
@@ -84,11 +87,14 @@ export function createIbdView(ctx) {
     h('button', { class: 'btn sm', type: 'button', title: 'Show parts and ports of this block that are not on the diagram yet', onclick: () => showMissing() }, icon('related'), 'Show all'),
     h('button', { class: 'btn sm', type: 'button', title: `Tidy layout (${formatKeys('Shift+L')})`, onclick: () => tidy() }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
+    ctx.openIcd ? h('button', { class: 'btn sm', type: 'button', title: 'This block\'s interfaces as an ICD table and an N² chart', onclick: () => { const b = diagram()?.owner; if (b) ctx.openIcd?.(b); } }, icon('plug'), 'Interfaces') : null,
+    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Align, space evenly or match the sizes of the selected parts', onclick: (/** @type {Event} */ e) => popupMenu(/** @type {HTMLElement} */ (e.currentTarget), arrangeMenu(arrangeKeys().length, arrangeSel), { title: 'Arrange the selection' }) }, icon('align'), 'Arrange'),
     h('span', { style: { flex: '1' } }),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (−)', onclick: () => zoomBy(1 / 1.25) }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (+)', onclick: () => zoomBy(1.25) }, icon('plus')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')));
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')),
+    ctx.image ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Copy or download as a picture', title: `Copy or download as a picture (PNG, SVG). ${formatKeys('Mod+Alt+C')} copies at once`, onclick: () => ctx.image?.() }, icon('image')) : null);
   // the tool palette: parts, ports, and connectors (made by dragging between ports)
   const palette = createToolPalette({
     items: () => [
@@ -415,6 +421,15 @@ export function createIbdView(ctx) {
     });
     if (ok) { setSel(new Set([partKey([...(containerKey === FRAME ? [] : containerKey.split('/')), partId])])); }
   }
+  /** Where a new port goes on a part (or the frame): in ports on the left, out on the right, both ways along the bottom. @param {string} target @param {'in' | 'out' | 'inout'} dir */
+  function portSpot(target, dir) {
+    const r = target === FRAME ? layout()[FRAME] : rectOf(target);
+    const existing = Object.keys(layout()).filter((k) => k.includes('#') && ownerKey(k) === target).length;
+    const side = dir === 'in' ? 'l' : dir === 'out' ? 'r' : 'b';
+    const t = Math.min(0.9, 0.3 + existing * 0.15);
+    const cx = side === 'l' ? r.x : side === 'r' ? r.x + r.w : r.x + r.w * t, cy = side === 'b' ? r.y + r.h : r.y + 30 + (r.h - 40) * t;
+    return { x: Math.round(cx - PORT / 2), y: Math.round(cy - PORT / 2), w: PORT, h: PORT };
+  }
   /** @param {HTMLElement} anchor */
   function portMenu(anchor) {
     const target = [...sel].find((k) => !k.includes('#')) || FRAME;
@@ -423,16 +438,11 @@ export function createIbdView(ctx) {
     const ifaces = model.byKind('interfaceDef').sort((a, b) => a.name.localeCompare(b.name));
     /** @param {'in' | 'out' | 'inout'} dir @param {string | null} type */
     const add = (dir, type) => {
-      const r = target === FRAME ? layout()[FRAME] : rectOf(target);
-      const existing = Object.keys(layout()).filter((k) => k.includes('#') && ownerKey(k) === target).length;
-      const side = dir === 'in' ? 'l' : dir === 'out' ? 'r' : 'b';
-      const t = Math.min(0.9, 0.3 + existing * 0.15);
-      const cx = side === 'l' ? r.x : side === 'r' ? r.x + r.w : r.x + r.w * t, cy = side === 'b' ? r.y + r.h : r.y + 30 + (r.h - 40) * t;
       let pid = '';
       if (ctx.edit('Add port', (tx) => {
         const tn = type ? model.get(type)?.name || '' : '';
         pid = tx.create('port', { owner: blk, name: `${roleName(tn || 'port')}${dir === 'in' ? 'In' : dir === 'out' ? 'Out' : ''}`, props: { type, direction: dir } });
-        tx.place(diagramId, { [target === FRAME ? `#${pid}` : portKey(target.split('/'), pid)]: { x: Math.round(cx - PORT / 2), y: Math.round(cy - PORT / 2), w: PORT, h: PORT } });
+        tx.place(diagramId, { [target === FRAME ? `#${pid}` : portKey(target.split('/'), pid)]: portSpot(target, dir) });
       })) setSel(new Set([target === FRAME ? `#${pid}` : portKey(target.split('/'), pid)]));
     };
     popupMenu(anchor, [
@@ -568,7 +578,12 @@ export function createIbdView(ctx) {
     const l = linking;
     linking = null; tip.hidden = true;
     const target = l.target;
-    if (!target) { invalidate(); return; }
+    if (!target) {
+      // let go on empty space, away from the port: make a part there, connected
+      const fr = rectOf(l.from);
+      if (fr && Math.hypot(l.to.x - (fr.x + fr.w / 2), l.to.y - (fr.y + fr.h / 2)) > 40 && lastUp) dragOutOfPort(l.from, l.to, lastUp);
+      invalidate(); return;
+    }
     const d = /** @type {any} */ (diagram());
     if (target.includes('#')) {
       const v = l.verdicts.get(target);
@@ -749,6 +764,8 @@ export function createIbdView(ctx) {
     }
   });
 
+  /** The pointerup that ends a drag (where a drag out of a port was let go). @type {MouseEvent | null} */
+  let lastUp = null;
   const endDrag = () => {
     if (!drag) return;
     const d = drag; drag = null;
@@ -778,7 +795,7 @@ export function createIbdView(ctx) {
     }
     invalidate();
   };
-  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointerup', (ev) => { lastUp = ev; endDrag(); lastUp = null; });
   stage.addEventListener('pointercancel', () => { override.clear(); linking = null; tip.hidden = true; dropInto = null; drag = null; invalidate(); });
 
   /**
@@ -818,7 +835,11 @@ export function createIbdView(ctx) {
       return;
     }
     const k = /** @type {HTMLElement | null} */ (t.closest('.port') || t.closest('.part'));
-    if (!k?.dataset.key) return;
+    if (!k?.dataset.key) {
+      // empty space (or the frame): add something there by typing
+      if (!t.closest('.qadd')) { const w = eventWorld(ev); const sc = scene(); openQuick(w, sc ? containerAt(sc, w, new Set()) : FRAME); }
+      return;
+    }
     const id = k.dataset.key.split(/[/#]/).pop() || '';
     if (ctx.openProps && model.get(id)) ctx.openProps(id); else startRename(k.dataset.key);
   });
@@ -882,9 +903,183 @@ export function createIbdView(ctx) {
     })) setSel(new Set([container === FRAME ? partId : `${container}/${partId}`]));
   }
 
+  // ---------- quick-add, Tab and dragging out of a port ----------
+  const lc = (/** @type {string} */ x) => x.trim().toLowerCase();
+  /** The package new blocks and interfaces go in: the one the diagram's block is in. @param {string} kind */
+  function newHome(kind) {
+    const pkg = model.get(/** @type {string} */ (diagram()?.owner))?.owner;
+    return pkg && model.canCreate(pkg, kind) ? pkg : model.layers().find((l) => l.layer === 'l')?.id || null;
+  }
+  /** A block (or interface) by name, or a new one. @param {any} tx @param {'partDef' | 'interfaceDef'} kind @param {string} name */
+  function named(tx, kind, name) {
+    const found = model.byKind(kind).find((b) => lc(b.name) === lc(name));
+    if (found) return found.id;
+    const home = newHome(kind);
+    if (!home) throw new ModelError(`A ${kindName(kind, 'sysml').toLowerCase()} cannot be added here`);
+    return tx.create(kind, { owner: home, name });
+  }
+  /** A free name among a block's members. @param {string} owner @param {string} base */
+  function freeName(owner, base) {
+    const taken = new Set(model.children(owner).map((x) => x.name));
+    let n = base; for (let i = 2; taken.has(n); i++) n = `${base}${i}`;
+    return n;
+  }
+  /**
+   * Move a new part's placement (its box, ports and anything inside) to free space near where
+   * it was put, so it never lands on another part in the same container.
+   * @param {string} container @param {string} key the new part's key @param {Record<string, Rect>} patch
+   */
+  function freePlacement(container, key, patch) {
+    const box = patch[key];
+    if (!box) return patch;
+    const depth = container === FRAME ? 1 : container.split('/').length + 1;
+    const others = Object.entries(layout()).filter(([k]) => k !== key && !k.includes('#') && k !== FRAME && k.split('/').length === depth && (container === FRAME || k.startsWith(container + '/'))).map(([, r]) => r);
+    const clear = (/** @type {Rect} */ r) => !others.some((o) => r.x < o.x + o.w + 20 && r.x + r.w + 20 > o.x && r.y < o.y + o.h + 20 && r.y + r.h + 20 > o.y);
+    let dx = 0, dy = 0;
+    if (!clear(box)) {
+      search: for (let ring = 1; ring <= 30; ring++) {
+        const step = ring * 40;
+        for (const [ax, ay] of [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+          if (clear({ ...box, x: box.x + ax * step, y: box.y + ay * step })) { dx = ax * step; dy = ay * step; break search; }
+        }
+      }
+    }
+    if (!dx && !dy) return patch;
+    return Object.fromEntries(Object.entries(patch).map(([k, r]) => [k, { ...r, x: r.x + dx, y: r.y + dy }]));
+  }
+  /** The part (not a port) a key stands for, or the frame. @param {string | undefined} key */
+  const partOrFrame = (key) => (key && !key.includes('#') && blockOf(key) ? key : key && key.includes('#') ? ownerKey(key) : FRAME);
+
+  /**
+   * Add what was typed. Parts go inside `container` (a part, or the frame), ports onto it.
+   * @param {string} text @param {string} container @param {Pt} at
+   */
+  function quickAdd(text, container, at) {
+    const res = parseIbdQuick(text);
+    if (res.error) { toast(res.error, true); return false; }
+    const into = blockOf(container);
+    if (!into) { toast('That part has no type, so nothing can go inside it. Give it a type first.', true); return false; }
+    const prefix = container === FRAME ? [] : container.split('/');
+    /** @type {string[]} */
+    const made = [];
+    let x = at.x;
+    const one = res.items.length === 1 ? res.items[0] : null;
+    const ok = ctx.edit(one?.port ? `Add port ${one.port.name}` : one?.part ? `Add part ${one.part.name || one.part.type}` : `Add ${res.items.length} parts and ports`, (tx) => {
+      for (const it of res.items) {
+        if (it.port) {
+          const type = it.port.type ? named(tx, 'interfaceDef', it.port.type) : null;
+          const pid = tx.create('port', { owner: into, name: freeName(into, it.port.name), props: { type, direction: it.port.direction } });
+          const key = container === FRAME ? `#${pid}` : portKey(prefix, pid);
+          tx.place(diagramId, { [key]: portSpot(container, it.port.direction) });
+          made.push(key);
+          continue;
+        }
+        const p = /** @type {NonNullable<typeof it.part>} */ (it.part);
+        const type = named(tx, 'partDef', p.type);
+        if (type === into) throw new ModelError(`${p.type} cannot contain itself`);
+        const pid = tx.create('part', { owner: into, name: freeName(into, p.name || roleName(p.type)), props: { type, multiplicity: p.multiplicity } });
+        const key = partKey([...prefix, pid]);
+        tx.place(diagramId, growToFit(freePlacement(container, key, placementFor(container, pid, { x, y: at.y }))));
+        x = (layout()[key]?.x ?? x) + (layout()[key]?.w ?? PART.minW) + 40 + PART.minW / 2;
+        made.push(key);
+      }
+    });
+    if (!ok) return false;
+    setSel(new Set(made.slice(-1)));
+    return true;
+  }
+  /** @type {HTMLElement | null} */
+  let quickBox = null;
+  function closeQuick() { quickBox?.remove(); quickBox = null; }
+  /** Open the quick-add field. @param {Pt} at @param {string} container @param {string} [initial] */
+  function openQuick(at, container, initial = '') {
+    if (ctx.offscreen) return;
+    closeQuick();
+    const into = blockOf(container);
+    const sx = (at.x - cam.x) * cam.k, sy = (at.y - cam.y) * cam.k;
+    const input = h('input', { class: 'qadd-in', type: 'text', value: initial, placeholder: `Into ${model.get(/** @type {string} */ (into))?.name || 'this block'}: Block, name : Block, out port : Interface`, 'aria-label': 'Add by typing', spellcheck: 'false', autocomplete: 'off', maxlength: 2000 });
+    const box = h('div', { class: 'qadd', style: { left: `${Math.max(8, Math.min(sx - 20, stage.clientWidth - 380))}px`, top: `${Math.max(8, Math.min(sy - 18, stage.clientHeight - 90))}px` } },
+      input, h('div', { class: 'qadd-help' }, `Enter adds · Esc cancels · ${IBD_HELP}`));
+    let busy = false;
+    input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); busy = true; const done = quickAdd(input.value, container, at); busy = false; if (done) { closeQuick(); stage.focus({ preventScroll: true }); } else input.focus(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); closeQuick(); stage.focus({ preventScroll: true }); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (!busy && quickBox === box && document.activeElement !== input) closeQuick(); }, 0));
+    box.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    stage.append(box);
+    quickBox = box;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+  /** Where typing adds things: inside the selected part (or the frame), in view. */
+  function quickTarget() {
+    const key = [...sel].find((k) => !k.includes('#')) || ([...sel][0] ? ownerKey([...sel][0]) : FRAME);
+    const c = partOrFrame(key);
+    const r = c === FRAME ? layout()[FRAME] : rectOf(c);
+    const { w, h: hh } = size();
+    const view = toWorld(w / 2, hh / 2);
+    return { container: c, at: r && !hit(r, view) ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : view };
+  }
+  /** Tab: the next one. On a part, a field for another part beside it, in the same container; on a port, another port on the same part, the same way. */
+  function addNext() {
+    const key = [...sel][0];
+    if (!key || sel.size !== 1) return;
+    if (key.includes('#')) {
+      const owner = ownerKey(key);
+      const pid = parseKey(key).port;
+      const dir = String((pid && model.get(pid)?.props.direction) || 'inout');
+      const r = rectOf(key);
+      openQuick({ x: r.x + 40, y: r.y }, owner, `${dir} `);
+      return;
+    }
+    const k = parseKey(key);
+    const container = k.path.length > 1 ? partKey(k.path.slice(0, -1)) : FRAME;
+    const r = rectOf(key);
+    openQuick({ x: r.x + r.w + 40 + PART.minW / 2, y: r.y + 30 }, container);
+  }
+
+  /**
+   * Dragging a port onto empty space: a new part there with a matching port, connected.
+   * @param {string} fromKey @param {Pt} at @param {MouseEvent} ev
+   */
+  function dragOutOfPort(fromKey, at, ev) {
+    const sc = scene();
+    if (!sc) return;
+    const container = containerAt(sc, at, new Set());
+    const into = blockOf(container);
+    const from = portEnd(fromKey, container === FRAME ? '' : container + '/x');
+    if (!into || !from) { toast('Drop on a port, or on a part, to connect', true); return; }
+    const spec = matchingPort(from);
+    const iface = spec.type ? model.get(spec.type)?.name : '';
+    const make = () => {
+      const prefix = container === FRAME ? [] : container.split('/');
+      let partKeyMade = '', blockId = '';
+      if (!ctx.edit('New part, connected', (tx) => {
+        const home = newHome('partDef');
+        if (!home) throw new ModelError('A block cannot be added here');
+        blockId = tx.create('partDef', { owner: home });
+        const pid = tx.create('port', { owner: blockId, name: spec.name, props: { type: spec.type, direction: spec.direction } });
+        const part = tx.create('part', { owner: into, name: freeName(into, roleName(/** @type {string} */ (model.get(blockId)?.name))), props: { type: blockId } });
+        partKeyMade = partKey([...prefix, part]);
+        tx.place(diagramId, growToFit(freePlacement(container, partKeyMade, placementFor(container, part, at))));
+        connectIn(tx, fromKey, portKey([...prefix, part], pid), blockId, pid);
+      })) return;
+      setSel(new Set([partKeyMade]));
+      render();
+      startRename(partKeyMade, true);
+    };
+    const sb = stage.getBoundingClientRect();
+    const anchor = h('div', { class: 'menu-anchor', style: { left: `${ev.clientX - sb.left}px`, top: `${ev.clientY - sb.top}px` } });
+    stage.append(anchor);
+    popupMenu(anchor, [{ label: `A new part with a matching ${spec.direction === 'inout' ? '' : spec.direction + ' '}port${iface ? ` (${iface})` : ''}, connected`, run: make }], { title: 'Make and connect' });
+    setTimeout(() => anchor.remove(), 0);
+  }
+
   // ---------- rename in place ----------
-  /** @param {string} key */
-  function startRename(key) {
+  /** @param {string} key @param {boolean} [alsoType] a new part: the name typed names its new block, and the part after it */
+  function startRename(key, alsoType = false) {
     const id = elementOf(key);
     const e = id ? model.get(id) : null;
     if (!e || key === FRAME) return;
@@ -892,7 +1087,31 @@ export function createIbdView(ctx) {
     const input = h('input', { class: 'drename', type: 'text', value: e.name, 'aria-label': 'Name', maxlength: 500 });
     Object.assign(input.style, { left: `${(r.x - cam.x) * cam.k + (key.includes('#') ? 16 : 6)}px`, top: `${(r.y + (key.includes('#') ? -6 : 8) - cam.y) * cam.k}px`, width: `${Math.max(140, (key.includes('#') ? 160 : r.w - 12) * cam.k)}px` });
     let done = false;
-    const finish = (/** @type {boolean} */ ok) => { if (done) return; done = true; input.remove(); const v = input.value.trim(); if (ok && v && v !== e.name) ctx.edit('Rename', (tx) => tx.rename(e.id, v)); stage.focus(); };
+    const typeId = alsoType && e.kind === 'part' ? e.props.type : null;
+    if (typeId) { input.value = model.get(typeId)?.name || ''; input.placeholder = 'Block name, or name : Block'; }
+    const finish = (/** @type {boolean} */ ok) => {
+      if (done) return; done = true; input.remove();
+      const v = input.value.trim();
+      if (ok && v && typeId) {
+        // "esc : ESC" names both; "ESC" names the block, and the part after it
+        const m = v.match(/^([^:]+?)\s*:\s*(.+)$/);
+        const block = (m ? m[2] : v).trim(), role = m ? m[1].trim() : roleName(block);
+        ctx.edit('Rename', (tx) => {
+          if (block !== model.get(typeId)?.name) tx.rename(typeId, block);
+          if (role === e.name) return;
+          const was = e.name, now = freeName(/** @type {string} */ (e.owner), role);
+          tx.rename(e.id, now);
+          // connectors named after the part when it was made ("block1.powerOut → cooler.powerIn") follow it
+          for (const c of model.byKind('connector')) {
+            const ends = [c.props.end1, c.props.end2];
+            if (!ends.some((x) => x?.path?.includes(e.id))) continue;
+            const nm = c.name.split(/(\s*→\s*)/).map((seg) => (seg.startsWith(`${was}.`) || seg === was ? now + seg.slice(was.length) : seg)).join('');
+            if (nm !== c.name) tx.rename(c.id, nm);
+          }
+        });
+      } else if (ok && v && v !== e.name) ctx.edit('Rename', (tx) => tx.rename(e.id, v));
+      stage.focus();
+    };
     input.addEventListener('keydown', (ev) => { ev.stopPropagation(); if (ev.key === 'Enter') finish(true); if (ev.key === 'Escape') finish(false); });
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('pointerdown', (ev) => ev.stopPropagation());
@@ -920,6 +1139,14 @@ export function createIbdView(ctx) {
       if (e?.kind === 'connector') { stop(); if (ctx.edit('Delete connector', (tx) => tx.remove(e.id))) toast(`Deleted the connector. ${formatKeys('Mod+Z')} to undo.`); return; }
     }
     if (mod && ev.key.toLowerCase() === 'a') { stop(); setSel(new Set((scene()?.parts || []).map((p) => p.key))); return; }
+    if (ev.key === 'Tab' && !ev.shiftKey && !mod && !ev.altKey && sel.size === 1) { stop(); addNext(); return; }
+    // start typing to add a part or a port (see quickadd.js)
+    if (!mod && !ev.altKey && ev.key.length === 1 && /\p{L}/u.test(ev.key) && !(ev.shiftKey && ev.key === 'L')) {
+      stop();
+      const q = quickTarget();
+      openQuick(q.at, q.container, ev.key);
+      return;
+    }
     if (ev.key === 'Escape' && sel.size) { stop(); setSel(new Set()); return; }
     if ((ev.key === 'Enter' || ev.key === 'F2') && sel.size === 1) { stop(); startRename([...sel][0]); return; }
     if (mod) return;
@@ -943,9 +1170,17 @@ export function createIbdView(ctx) {
     zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(1 / 1.25),
     addRelated: showMissing, removeFromView, deleteFromModel,
     selection: () => [...sel],
+    /** @param {import('./arrange.js').ArrangeOp} op */
+    arrange: (op) => arrangeSel(op),
+    /** Add by typing (as the quick-add field does), inside the selected part or the frame. @param {string} text */
+    quickAdd: (text) => { const q = quickTarget(); return quickAdd(text, q.container, q.at); },
+    openQuick: () => { const q = quickTarget(); openQuick(q.at, q.container); },
+    addNext,
+    /** For tests: drag a port out onto a point and take the offer. @param {string} fromKey @param {Pt} at */
+    dragOutOfPortNow(fromKey, at) { const ev = /** @type {any} */ ({ clientX: 0, clientY: 0 }); dragOutOfPort(fromKey, at, ev); /** @type {HTMLElement | null} */ (document.querySelector('.popmenu [role=menuitem]'))?.click(); },
     stats: () => ({ lastRenderMs, parts: scene()?.parts.length || 0 }),
     /** @param {Partial<{ x: number, y: number, k: number }>} c */
     setCamera(c) { Object.assign(cam, c); render(); },
-    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); unsub(); palette.dispose(); },
+    dispose() { closeQuick(); ro?.disconnect(); cancelAnimationFrame(raf); unsub(); palette.dispose(); },
   };
 }

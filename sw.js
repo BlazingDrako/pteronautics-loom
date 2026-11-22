@@ -4,7 +4,7 @@
 // Every app file is cached when the worker installs. While online, files still come from the
 // network first (so a new version shows up on the next load) and the cache is refreshed;
 // offline, or when the network is slow to answer, the cached copy is used.
-const CACHE = 'loom-1.1.0-2c1fc09af1';
+const CACHE = 'loom-1.1.0-32ceea0836';
 const FILES = [
   "index.html",
   "manifest.webmanifest",
@@ -20,6 +20,7 @@ const FILES = [
   "src/analysis/units.js",
   "src/analysis/verify.js",
   "src/canvas/act.js",
+  "src/canvas/arrange.js",
   "src/canvas/bdd.js",
   "src/canvas/connect.js",
   "src/canvas/ibd.js",
@@ -29,6 +30,7 @@ const FILES = [
   "src/canvas/measure.js",
   "src/canvas/par.js",
   "src/canvas/populate.js",
+  "src/canvas/quickadd.js",
   "src/canvas/req.js",
   "src/canvas/route.js",
   "src/canvas/sdview.js",
@@ -40,6 +42,7 @@ const FILES = [
   "src/custom/stereo.js",
   "src/interop/api.js",
   "src/interop/docs.js",
+  "src/interop/image.js",
   "src/interop/reqif.js",
   "src/interop/reqs.js",
   "src/interop/sheet.js",
@@ -49,10 +52,13 @@ const FILES = [
   "src/library/entries.js",
   "src/library/figures.js",
   "src/model/framework.js",
+  "src/model/gtable.js",
+  "src/model/icd.js",
   "src/model/ids.js",
   "src/model/metamodel.js",
   "src/model/model.js",
   "src/model/paths.js",
+  "src/model/replace.js",
   "src/model/sample.js",
   "src/model/samples.js",
   "src/model/serialize.js",
@@ -70,6 +76,7 @@ const FILES = [
   "src/text/names.js",
   "src/text/parser.js",
   "src/text/printer.js",
+  "src/ui/bulk.js",
   "src/ui/dialog.js",
   "src/ui/dom.js",
   "src/ui/framework.js",
@@ -82,6 +89,7 @@ const FILES = [
   "src/ui/prefs.js",
   "src/ui/problems.js",
   "src/ui/props.js",
+  "src/ui/replace.js",
   "src/ui/rulesdlg.js",
   "src/ui/runpanel.js",
   "src/ui/textpane.js",
@@ -90,6 +98,8 @@ const FILES = [
   "src/validate/engine.js",
   "src/validate/rules.js",
   "src/validate/worker.js",
+  "src/views/gtable.js",
+  "src/views/icd.js",
   "src/views/library.js",
   "src/views/matrix.js",
   "src/views/table.js",

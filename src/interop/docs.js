@@ -225,7 +225,7 @@ export function buildDocument(m, o = {}) {
   }
   // ---------- diagrams ----------
   if (want.has('diagrams')) {
-    const ds = DIAGRAM_KINDS.filter((k) => k !== 'table' && k !== 'matrix').flatMap((k) => m.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
+    const ds = DIAGRAM_KINDS.filter((k) => k !== 'table' && k !== 'matrix' && k !== 'gtable').flatMap((k) => m.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
     body.push(h(2, 'Diagrams'));
     if (!ds.length) body.push('<p class="none">No diagrams yet.</p>');
     for (const d of ds) {
@@ -319,7 +319,7 @@ function tocHtml(toc) {
 }
 
 /** Diagrams the document will picture, in order. @param {Model} m */
-export const documentDiagrams = (m) => DIAGRAM_KINDS.filter((k) => k !== 'table' && k !== 'matrix').flatMap((k) => m.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
+export const documentDiagrams = (m) => DIAGRAM_KINDS.filter((k) => k !== 'table' && k !== 'matrix' && k !== 'gtable').flatMap((k) => m.byKind(k)).sort((a, b) => a.name.localeCompare(b.name));
 
 /** A file's bytes as base64. @param {ArrayBuffer} buf */
 export function toBase64(buf) {

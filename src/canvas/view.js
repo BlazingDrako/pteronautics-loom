@@ -9,6 +9,7 @@
 // from the model browser to show them.
 import { h, s, icon, toast, formatKeys } from '../ui/dom.js';
 import { popupMenu } from '../ui/menu.js';
+import { ARRANGE, arrange, arrangeMenu } from './arrange.js';
 import { naturalSize, heightAt, wraps, compartmentLines, titleH, BOX, bddKind } from './bdd.js';
 import { reqKind } from './req.js';
 import { actKind } from './act.js';
@@ -29,7 +30,8 @@ import { routeAll, pathData } from './route.js';
 import { layered } from './layout.js';
 import { FONTS, ellipsize, resetMeasureCache } from './measure.js';
 import { ELEMENTS, RELATIONSHIPS, kindName } from '../model/metamodel.js';
-import { FILLS } from '../model/model.js';
+import { FILLS, ModelError } from '../model/model.js';
+import { parseQuick, quickHelp } from './quickadd.js';
 import { decorate } from '../custom/stereo.js';
 import { presetsFor, presetProps, matches, currentOptions, newPresetId } from '../custom/presets.js';
 import { worst } from '../validate/engine.js';
@@ -53,6 +55,9 @@ import { shapeRoute, moveSegment, nearestSegment, lineToKeep } from './lines.js'
  *   settings?: import('../settings.js').SettingsStore,
  *   offscreen?: boolean,
  *   openProps?: (id: string) => void,
+ *   image?: () => void,
+ *   open?: (id: string) => void,
+ *   openIcd?: (blockId: string) => void,
  * }} ViewCtx
  */
 
@@ -90,6 +95,8 @@ const MIN_K = 0.08, MAX_K = 3;
 
 /** Cameras survive switching tabs. @type {Map<string, Camera>} */
 const cameras = new Map();
+/** The format painter's copied look (shared by every diagram, so a look can go from one to another). @type {null | { fill?: string, w: number, h: number, kind: string, from: string }} */
+let painted = null;
 
 let fontsReady = false;
 if (typeof document !== 'undefined' && document.fonts) document.fonts.ready.then(() => { fontsReady = true; resetMeasureCache(); });
@@ -181,6 +188,7 @@ export function createDiagramView(ctx) {
     h('button', { class: 'btn sm', type: 'button', onclick: () => addRelated(), title: K.kind === 'req' ? 'Show what the selection breaks down into, comes from, and is satisfied, refined or verified by' : 'Show the types of the selected blocks\' parts and their generalizations' }, icon('related'), 'Add related'),
     h('button', { class: 'btn sm', type: 'button', onclick: () => tidy(), title: `Tidy layout (${formatKeys('Shift+L')})` }, icon('layout'), 'Tidy layout'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', onclick: (/** @type {Event} */ e) => viewMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('eye'), 'View'),
+    h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Align, space evenly or match the sizes of the selected boxes', onclick: (/** @type {Event} */ e) => arrangeMenuAt(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('align'), 'Arrange'),
     h('button', { class: 'btn sm', type: 'button', 'aria-haspopup': 'menu', title: 'Color the selected boxes (on this diagram only)', onclick: (/** @type {Event} */ e) => colorMenu(/** @type {HTMLElement} */ (e.currentTarget)) }, icon('palette'), 'Color'),
     RUNS[/** @type {string} */ (diagram()?.kind)] ? h('button', { class: 'btn sm run-btn', type: 'button', title: 'Run this diagram to see it work, and check it for problems', onclick: () => toggleRun() }, icon('play'), 'Run') : null,
     h('span', { style: { flex: '1' } }),
@@ -188,7 +196,8 @@ export function createDiagramView(ctx) {
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom out', title: 'Zoom out (−)', onclick: () => zoomBy(1 / 1.25) }, icon('minus')),
     zoomLabel,
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Zoom in', title: 'Zoom in (+)', onclick: () => zoomBy(1.25) }, icon('plus')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')));
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fit to window', title: 'Fit (0)', onclick: () => fit() }, icon('fit')),
+    ctx.image ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Copy or download as a picture', title: `Copy or download as a picture (PNG, SVG). ${formatKeys('Mod+Alt+C')} copies at once`, onclick: () => ctx.image?.() }, icon('image')) : null);
   // ---------- the tool palette ----------
   /** The armed tool: place an element where you click, or relate two boxes. @type {null | { item: import('./tools.js').ToolItem, kind?: string, props?: Record<string, any>, link?: string, sticky: boolean }} */
   let tool = null;
@@ -317,7 +326,35 @@ export function createDiagramView(ctx) {
       for (const id of sel) { const r = { ...layout()[id] }; if (fill) r.fill = fill; else delete r.fill; patch[id] = r; }
       commit(fill ? `Color ${fill}` : 'Default color', patch);
     };
-    popupMenu(anchor, [{ label: 'Default', hint: '', run: () => set(null) }, ...FILLS.map((f) => ({ label: f[0].toUpperCase() + f.slice(1), hint: '●', swatch: f, run: () => set(f) }))], { title: 'Fill on this diagram' });
+    popupMenu(anchor, [{ label: 'Default', hint: '', run: () => set(null) }, ...FILLS.map((f) => ({ label: f[0].toUpperCase() + f.slice(1), hint: '●', swatch: f, run: () => set(f) })),
+      'sep',
+      { label: 'Copy this box\'s look', hint: formatKeys('Alt+Shift+C'), disabled: sel.size !== 1, run: () => copyLook() },
+      { label: painted ? `Paste the look of ${painted.from}` : 'Paste a look', hint: formatKeys('Alt+Shift+V'), disabled: !painted, run: () => pasteLook() }], { title: 'Fill on this diagram' });
+  }
+  /** Format painter: remember the selected box's fill and size. */
+  function copyLook() {
+    const id = [...sel][0];
+    const r = id ? layout()[id] : undefined;
+    if (!id || sel.size !== 1 || !r) { toast('Select one box to copy its look'); return; }
+    const e = elOf(id);
+    painted = { fill: r.fill, w: r.w, h: r.h, kind: e?.kind || '', from: e?.name || 'the box' };
+    toast(`Copied the look of ${painted.from}. Select boxes and paste it (${formatKeys('Alt+Shift+V')})`);
+  }
+  /** Format painter: give the selected boxes the copied fill, and its size when they are the same kind. */
+  function pasteLook() {
+    if (!painted) { toast('Copy a box\'s look first'); return; }
+    const look = painted;
+    const ids = [...sel].filter((id) => layout()[id]);
+    if (!ids.length) { toast('Select the boxes to paste the look onto'); return; }
+    /** @type {Record<string, Rect>} */
+    const patch = {};
+    for (const id of ids) {
+      const r = { ...layout()[id] };
+      if (look.fill) r.fill = look.fill; else delete r.fill;
+      if (elOf(id)?.kind === look.kind) { r.w = look.w; r.h = look.h; }
+      patch[id] = r;
+    }
+    commit(`Paste the look of ${look.from}`, patch);
   }
 
   // ---------- geometry ----------
@@ -807,6 +844,215 @@ export function createDiagramView(ctx) {
     revealIfHidden(id); render();
     if (!K.noRename?.(elOf(id))) startRename(id);
   }
+  // ---------- quick-add, Tab for the next one, and dragging out to create ----------
+  /** Where a new element of a kind goes in the model, or null. @param {string} kind */
+  function newOwner(kind) {
+    const d = diagram();
+    if (!d) return null;
+    const layerPkg = model.layers().find((l) => l.layer === (ELEMENTS[kind].defaultLayer || K.addLayer))?.id || null;
+    return K.ownerFor ? K.ownerFor(model, d, kind, [...sel]) : d.owner && model.canCreate(d.owner, kind) && model.layerOf(d.owner) === ELEMENTS[kind].defaultLayer ? d.owner : layerPkg;
+  }
+  /** What can be made by typing or dragging out: the palette's element tools, with their variants. @returns {import('./quickadd.js').Choice[]} */
+  function quickChoices() {
+    const d = diagram();
+    /** @type {import('./quickadd.js').Choice[]} */
+    const out = [];
+    if (!d || K.kind === 'par') return out;
+    for (const a of K.add) {
+      if (a.create) continue;
+      if (a.menu) {
+        const list = a.menu(model, d, ctx.notation());
+        if (list && list.length && list.every((/** @type {any} */ it) => it.props && !it.place)) for (const it of list) out.push({ kind: it.kind || a.kind, label: it.label, props: it.props });
+        continue;
+      }
+      out.push({ kind: a.kind, label: a.kind === 'action' ? 'Action' : a.label, props: a.props });
+    }
+    return out;
+  }
+  /**
+   * Inside a transaction: make an element and show it around a point (its middle).
+   * @param {any} tx @param {string} kind @param {string | undefined} name @param {Record<string, any> | undefined} props
+   * @param {{ x: number, y: number }} c @param {boolean} free find free space near the point
+   */
+  function makeAt(tx, kind, name, props, c, free) {
+    const owner = newOwner(kind);
+    if (!owner) throw new ModelError(`A ${kindName(kind, ctx.notation()).toLowerCase()} cannot be added here`);
+    const id = tx.create(kind, { owner, ...(name ? { name } : {}), props: { ...ctx.newProps?.(kind, owner), ...props } });
+    const base = K.newSize?.(kind, props) || { w: kind === 'requirement' ? 240 : 180, h: 60 };
+    // wide enough for a long typed name
+    const sz = { w: Math.max(base.w, Math.min(360, Math.ceil(((name || '').length * 8 + 40) / GRID) * GRID)), h: base.h };
+    const r = free ? freeSpot(c.x - sz.w / 2, c.y - sz.h / 2, sz.w, sz.h) : { x: Math.round((c.x - sz.w / 2) / GRID) * GRID, y: Math.round((c.y - sz.h / 2) / GRID) * GRID, w: sz.w, h: sz.h };
+    tx.place(diagramId, { [id]: r });
+    K.afterPlace?.(model, tx, diagram(), [id]);
+    return id;
+  }
+  /** Relate two boxes by a link kind (a relationship, or a flow or transition). @param {any} tx @param {string} k @param {string} a @param {string} b */
+  const linkIn = (tx, k, a, b) => (K.makeLink ? K.makeLink(model, tx, diagram(), k, a, b) : tx.link(k, a, b));
+  /** Select what was made and show it. @param {string[]} ids @param {boolean} [rename] */
+  function selectMade(ids, rename = false) {
+    const shown = ids.filter((x) => layout()[x]);
+    setSel(new Set(shown.length ? [shown[shown.length - 1]] : []));
+    render();
+    if (shown.length) { revealIfHidden(shown[shown.length - 1]); render(); }
+    if (rename && shown.length === 1 && !K.noRename?.(elOf(shown[0]))) startRename(shown[0]);
+  }
+  const lc = (/** @type {string} */ x) => x.trim().toLowerCase();
+
+  /** Add what was typed (see quickadd.js), around a point. Returns false to keep the field open. @param {string} text @param {{ x: number, y: number }} at */
+  function quickAdd(text, at) {
+    const res = parseQuick(text, { diagram: K.kind, choices: quickChoices() });
+    if (res.error) { toast(res.error, true); return false; }
+    const block = [...sel].map((x) => elOf(x)).find((e) => e?.kind === 'partDef');
+    /** @type {string[]} */
+    const made = [];
+    let x = at.x;
+    const one = res.items.length === 1 ? res.items[0] : null;
+    const label = one ? (one.part ? `Add part ${one.name}` : `New ${kindName(one.kind, 'sysml').toLowerCase()} ${one.name}`) : `Add ${res.items.length} elements`;
+    /** A block by name, or a new one next to `near` (shown on the diagram either way). @param {any} tx @param {string} name @param {Rect} near @param {number} dy */
+    const blockNamed = (tx, name, near, dy) => {
+      let id = model.byKind('partDef').find((b) => lc(b.name) === lc(name))?.id;
+      if (!id) {
+        const owner = block?.owner && model.canCreate(block.owner, 'partDef') ? block.owner : newOwner('partDef');
+        if (!owner) throw new ModelError('A block cannot be added here');
+        id = tx.create('partDef', { owner, name });
+      }
+      if (!layout()[id]) tx.place(diagramId, { [id]: freeSpot(near.x, near.y + dy, Math.max(180, Math.min(360, name.length * 8 + 40)), 60) });
+      return id;
+    };
+    const ok = ctx.edit(label, (tx) => {
+      for (const it of res.items) {
+        if (it.part) {
+          if (!block) throw new ModelError('Select the block to add the part to, then type it again');
+          const br = rectOf(block.id);
+          const type = blockNamed(tx, it.part.type, br, br.h + 90);
+          tx.create('part', { owner: block.id, name: it.name, props: { type, multiplicity: it.part.multiplicity } });
+          made.push(type);
+          continue;
+        }
+        const id = makeAt(tx, it.kind, it.name, it.props, { x, y: at.y }, true);
+        x = (layout()[id]?.x ?? x) + (layout()[id]?.w ?? 180) + 40 + (layout()[id]?.w ?? 180) / 2;
+        if (it.parent) {
+          const pr = blockNamed(tx, it.parent, /** @type {Rect} */ (layout()[id]), -150);
+          if (!model.canLink('generalize', id, pr)) throw new ModelError(`${it.name} cannot specialize ${it.parent}`);
+          tx.link('generalize', id, pr);
+        }
+        made.push(id);
+      }
+    });
+    if (!ok) return false;
+    selectMade(made);
+    if (one?.part) toast(`${block?.name} now has ${one.name} : ${one.part.type}${one.part.multiplicity !== '1' ? ` [${one.part.multiplicity}]` : ''}`);
+    return true;
+  }
+  /** @type {HTMLElement | null} */
+  let quickBox = null;
+  function closeQuick() { quickBox?.remove(); quickBox = null; }
+  /** Open the quick-add field at a point on the diagram, with what was typed so far. @param {{ x: number, y: number }} at @param {string} [initial] */
+  function openQuick(at, initial = '') {
+    const choices = quickChoices();
+    if (!choices.length || ctx.offscreen) return;
+    closeQuick();
+    const sx = (at.x - cam.x) * cam.k, sy = (at.y - cam.y) * cam.k;
+    const placeholder = K.kind === 'bdd' ? 'Block name, or part : Type [n]' : K.kind === 'req' ? 'Requirement name, or Name: text' : `${choices[0].label} name`;
+    const input = h('input', { class: 'qadd-in', type: 'text', value: initial, placeholder, 'aria-label': 'Add by typing', spellcheck: 'false', autocomplete: 'off', maxlength: 2000 });
+    const box = h('div', { class: 'qadd', style: { left: `${Math.max(8, Math.min(sx - 20, stage.clientWidth - 380))}px`, top: `${Math.max(8, Math.min(sy - 18, stage.clientHeight - 90))}px` } },
+      input, h('div', { class: 'qadd-help' }, `Enter adds · Esc cancels · ${quickHelp(K.kind, choices)}`));
+    let busy = false;
+    input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); busy = true; const done = quickAdd(input.value, at); busy = false; if (done) { closeQuick(); stage.focus({ preventScroll: true }); } else input.focus(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); closeQuick(); stage.focus({ preventScroll: true }); }
+    });
+    input.addEventListener('blur', () => setTimeout(() => { if (!busy && quickBox === box && document.activeElement !== input) closeQuick(); }, 0));
+    box.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    stage.append(box);
+    quickBox = box;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  /** Tab: the next one. A new box of the same kind beside the selected one (below it, and joined by a flow or transition, in activities and state machines), named at once. @param {string} id */
+  function addNext(id) {
+    const e = elOf(id);
+    if (!e) return;
+    const choices = quickChoices();
+    // the same variant (a decision stays a decision); after a start or an end node, a step
+    const same = choices.find((c) => c.kind === e.kind && (!c.props || Object.entries(c.props).every(([k, v]) => e.props[k] === v)));
+    const pseudo = (e.kind === 'controlNode') || (e.kind === 'state' && e.props.stateKind && e.props.stateKind !== 'normal');
+    const pick = pseudo ? choices.find((c) => !c.props) : same || choices.find((c) => c.kind === e.kind && !c.props);
+    if (!pick) { toast(`Tab adds the next ${kindName(e.kind, ctx.notation()).toLowerCase()}: this one cannot have one here`); return; }
+    const r = rectOf(id);
+    const down = K.kind === 'act' || K.kind === 'stm';
+    const size = K.newSize?.(pick.kind, pick.props) || { w: 180, h: 60 };
+    const c = down ? { x: r.x + r.w / 2, y: r.y + r.h + 70 + size.h / 2 } : { x: r.x + r.w + 60 + size.w / 2, y: r.y + size.h / 2 };
+    let made = '';
+    if (!ctx.edit(`New ${kindName(pick.kind, 'sysml').toLowerCase()}`, (tx) => {
+      made = makeAt(tx, pick.kind, undefined, pick.props, c, true);
+      if (down) { const ks = K.linkKinds(model, id, made); if (ks.length) linkIn(tx, ks[0], id, made); }
+    })) return;
+    selectMade([made], true);
+  }
+
+  /** A marker thrown to roll back a trial transaction. */
+  const PROBE = {};
+  /**
+   * What dragging out of a box onto empty space can make: each new element that can be related
+   * to it, and how (either way). Each is tried in a transaction that is rolled back.
+   * @param {string} from
+   * @returns {{ label: string, run: (at: { x: number, y: number }) => void }[]}
+   */
+  function dragOutOptions(from) {
+    const n = ctx.notation();
+    const src = elOf(from);
+    if (!src) return [];
+    /** @type {{ label: string, run: (at: { x: number, y: number }) => void }[]} */
+    const out = [];
+    const finish = (/** @type {string} */ label, /** @type {(tx: any, at: { x: number, y: number }) => string} */ make, /** @param {{ x: number, y: number }} at */ at) => {
+      let id = '';
+      if (ctx.edit(label, (tx) => { id = make(tx, at); })) selectMade([id], true);
+    };
+    if (K.kind === 'bdd' && src.kind === 'partDef') {
+      out.push({
+        label: `A new block, as a part of ${src.name}`,
+        run: (at) => finish('New part block', (tx) => {
+          const b = makeAt(tx, 'partDef', undefined, undefined, at, false);
+          const nm = /** @type {string} */ (model.get(b)?.name);
+          tx.create('part', { owner: src.id, name: nm.charAt(0).toLowerCase() + nm.slice(1).replace(/\s+/g, ''), props: { type: b } });
+          return b;
+        }, at),
+      });
+    }
+    for (const c of quickChoices()) {
+      /** @type {string[]} */
+      let fwd = [], rev = [];
+      try {
+        model.transact('Try', (tx) => {
+          const id = makeAt(tx, c.kind, undefined, c.props, { x: -1e6, y: -1e6 }, false);
+          fwd = K.linkKinds(model, from, id); rev = K.linkKinds(model, id, from);
+          throw PROBE;
+        });
+      } catch (e) { if (e !== PROBE && !(e instanceof ModelError)) throw e; }
+      // the palette's own word (an activity's "Action", a "Fork"), in lower case
+      const what = c.label.toLowerCase();
+      // flows and transitions read as arrows; relationships as sentences
+      const fwdLabel = (/** @type {string} */ k) => (K.linkLabel ? `${src.name} → a new ${what} (${linkName(k)})` : `${src.name} ${linkVerb(k, n)} a new ${what}`);
+      const revLabel = (/** @type {string} */ k) => (K.linkLabel ? `A new ${what} → ${src.name} (${linkName(k)})` : `A new ${what} that ${linkVerb(k, n)} ${src.name}`);
+      for (const k of fwd) out.push({ label: fwdLabel(k), run: (at) => finish(`Add ${linkName(k)}`, (tx, p) => { const id = makeAt(tx, c.kind, undefined, c.props, p, false); linkIn(tx, k, from, id); return id; }, at) });
+      for (const k of rev) if (!(K.makeLink && fwd.includes(k))) out.push({ label: revLabel(k), run: (at) => finish(`Add ${linkName(k)}`, (tx, p) => { const id = makeAt(tx, c.kind, undefined, c.props, p, false); linkIn(tx, k, id, from); return id; }, at) });
+    }
+    return out;
+  }
+  /** Show what a drag out of a box can make, where it was let go. @param {string} from @param {{ x: number, y: number }} at @param {PointerEvent} ev */
+  function dragOutMenu(from, at, ev) {
+    const opts = dragOutOptions(from);
+    if (!opts.length) { toast(`Nothing new can be related to ${elOf(from)?.name} here`); return; }
+    const sb = stage.getBoundingClientRect();
+    const anchor = h('div', { class: 'menu-anchor', style: { left: `${ev.clientX - sb.left}px`, top: `${ev.clientY - sb.top}px` } });
+    stage.append(anchor);
+    popupMenu(anchor, opts.slice(0, 24).map((o) => ({ label: o.label, run: () => o.run(at) })), { title: 'Make and connect' });
+    setTimeout(() => anchor.remove(), 0);
+  }
+
   /** Show an element that is already in the model (a lane's block, say). @param {string} id */
   function placeExisting(id) {
     if (layout()[id]) { setSel(new Set([id])); revealIfHidden(id); invalidate(); return; }
@@ -870,6 +1116,30 @@ export function createDiagramView(ctx) {
     });
     fit();
   }
+
+  /** Align, space or size the selected boxes (what moves with a box, like a state's insides, moves too). @param {import('./arrange.js').ArrangeOp} op */
+  function arrangeSel(op) {
+    const keys = [...sel].filter((id) => layout()[id]);
+    const def = ARRANGE.find((a) => a.id === op);
+    if (!def || keys.length < def.min) { toast(`Select ${def?.min || 2} or more boxes first`); return; }
+    const boxes = new Map(keys.map((id) => [id, rectOf(id)]));
+    const moved = arrange(op, boxes, { grid: GRID });
+    if (!Object.keys(moved).length) { toast('Already lined up'); return; }
+    /** @type {Record<string, Rect>} */
+    const patch = {};
+    for (const [id, r] of Object.entries(moved)) {
+      const o = layout()[id], b = /** @type {Rect} */ (boxes.get(id));
+      patch[id] = { ...o, x: r.x, y: r.y, w: r.w, h: r.h === b.h ? o.h : r.h };
+      const dx = r.x - b.x, dy = r.y - b.y;
+      if ((dx || dy) && K.dragsWith) for (const c of K.dragsWith(model, diagram(), id, (/** @type {string} */ q) => rectOf(q), shownIds())) {
+        if (c === id || sel.has(c) || patch[c]) continue;
+        const cr = layout()[c]; if (cr) patch[c] = { ...cr, x: cr.x + dx, y: cr.y + dy };
+      }
+    }
+    commit(def.label, patch);
+  }
+  /** @param {HTMLElement} anchor */
+  function arrangeMenuAt(anchor) { popupMenu(anchor, arrangeMenu([...sel].filter((id) => layout()[id]).length, arrangeSel), { title: 'Arrange the selection' }); }
 
   /** @param {HTMLElement} anchor */
   function viewMenu(anchor) {
@@ -1122,6 +1392,12 @@ export function createDiagramView(ctx) {
       const l = linking; linking = null; tip.hidden = true;
       // a relationship tool, clicked on its source: wait for the target's click
       if (!l.over && l.only) { linking = { ...l, pending: true }; trackLink(ev, eventWorld(ev)); invalidate(); return; }
+      // dragged from a box's handle onto empty space: make something there, already connected
+      if (!l.over && !l.only) {
+        const at = eventWorld(ev), fr = rectOf(l.from);
+        const away = at.x < fr.x - 20 || at.x > fr.x + fr.w + 20 || at.y < fr.y - 20 || at.y > fr.y + fr.h + 20;
+        if (away && !boxAt(at)) { invalidate(); dragOutMenu(l.from, at, ev); return; }
+      }
       if (l.over && !l.kinds.length && l.only) toast(tip.textContent?.replace(/^✕ /, '') || 'Those cannot be related', true);
       if (l.over && l.kinds.length && tool && !tool.sticky) armTool(null);
       if (l.over && l.kinds.length) {
@@ -1202,7 +1478,7 @@ export function createDiagramView(ctx) {
       return;
     }
     const n = under?.closest('.node');
-    if (!n) return;
+    if (!n) { if (!under?.closest('.qadd')) openQuick(eventWorld(ev)); return; }
     const id = /** @type {string} */ (/** @type {HTMLElement} */ (n).dataset.id);
     const el = model.get(id.split('/').pop() || id);
     if (ctx.openProps && el) ctx.openProps(el.id); else startRename(id);
@@ -1268,6 +1544,16 @@ export function createDiagramView(ctx) {
       return;
     }
     if (mod && ev.key.toLowerCase() === 'a') { stop(); setSel(new Set(shownIds())); return; }
+    // Tab: the next one, beside (or after) the selected box
+    if (ev.key === 'Tab' && !ev.shiftKey && !mod && !ev.altKey && sel.size === 1 && !tool && quickChoices().length) { stop(); addNext([...sel][0]); return; }
+    // start typing a name to add something (see quickadd.js)
+    if (!mod && !ev.altKey && !tool && ev.key.length === 1 && /\p{L}/u.test(ev.key) && !(ev.shiftKey && ev.key === 'L') && quickChoices().length) {
+      stop();
+      const one = sel.size === 1 ? rectOf([...sel][0]) : null;
+      const { w: vw, h: vh } = size();
+      openQuick(one ? { x: one.x + one.w + 130, y: one.y + 30 } : toWorld(vw / 2, vh / 2), ev.key);
+      return;
+    }
     if (ev.key === 'Escape' && (tool || linking)) { stop(); linking = null; tip.hidden = true; armTool(null); return; }
     if (ev.key === 'Escape' && sel.size) { stop(); setSel(new Set()); return; }
     if ((ev.key === 'Enter' || ev.key === 'F2') && sel.size === 1) { stop(); startRename([...sel][0]); return; }
@@ -1291,6 +1577,14 @@ export function createDiagramView(ctx) {
     zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(1 / 1.25),
     tidy, addRelated, removeFromView, deleteFromModel,
     selection: () => [...sel],
+    /** @param {import('./arrange.js').ArrangeOp} op */
+    arrange: (op) => arrangeSel(op),
+    copyLook: () => copyLook(), pasteLook: () => pasteLook(),
+    /** Add by typing (as the quick-add field does). @param {string} text @param {{ x: number, y: number }} [at] */
+    quickAdd: (text, at) => quickAdd(text, at || toWorld(size().w / 2, size().h / 2)),
+    openQuick: () => openQuick(toWorld(size().w / 2, size().h / 2)),
+    addNext: () => { if (sel.size === 1) addNext([...sel][0]); },
+    dragOutOptions,
     /** For the benchmark page. */
     stats: () => ({ lastRenderMs, built: built.size, shown: shownIds().length }),
     /** For the benchmark page: move the camera without animation. @param {Partial<Camera>} c */
@@ -1298,7 +1592,7 @@ export function createDiagramView(ctx) {
     /** Open or close the run panel (activity and state machine diagrams). @param {boolean} [open] */
     toggleRun: (open) => toggleRun(open),
     canRun: () => !!RUNS[/** @type {string} */ (diagram()?.kind)],
-    dispose() { ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); runPanel?.dispose(); palette.dispose(); },
+    dispose() { closeQuick(); ro?.disconnect(); cancelAnimationFrame(raf); clearTimeout(fullTimer); unsubModel(); runPanel?.dispose(); palette.dispose(); },
   };
 }
 
