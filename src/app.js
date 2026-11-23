@@ -75,6 +75,7 @@ commands.add({ id: 'interop.exportReqs', title: 'Export requirements (ReqIF, Exc
 commands.add({ id: 'doc.generate', title: 'Generate a document (HTML or PDF)…', group: 'Exchange', keywords: ['report', 'specification', 'pdf', 'print', 'word', 'export', 'document'], enabled: inProject, run: () => ws?.generateDocument() });
 commands.add({ id: 'api.send', title: 'Send this project to a SysML v2 API server…', group: 'Exchange', keywords: ['sysml v2', 'api', 'server', 'repository', 'push', 'omg'], enabled: inProject, run: () => ws?.sendToApi() });
 commands.add({ id: 'api.open', title: 'Open a project from a SysML v2 API server…', group: 'Exchange', keywords: ['sysml v2', 'api', 'server', 'repository', 'pull', 'omg'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.openFromServer(); } });
+commands.add({ id: 'interop.exportModel', title: 'Export to Cameo / MagicDraw (SysML 1.6 XMI)…', group: 'Exchange', keywords: ['cameo', 'magicdraw', 'xmi', 'sysml 1', 'uml', 'export', 'download'], enabled: inProject, run: () => ws?.exportModelXmi() });
 commands.add({ id: 'interop.importModel', title: 'Import a Cameo / MagicDraw model (.mdzip, .xmi)…', group: 'Exchange', keywords: ['cameo', 'magicdraw', 'xmi', 'mdzip', 'sysml 1', 'uml', 'capella'], run: async () => { if (ws) { location.hash = '#/'; await settle(); } home?.importFile(); } });
 
 // ---------- projects ----------

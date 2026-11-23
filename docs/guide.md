@@ -106,8 +106,9 @@ can hold, drawn as its SysML symbol. Hover a tool for its name and what it does.
    Choose rule sets, change severities, write your own rules or ignore a problem in **Rules**.
    Checking runs in the background, so even very large models never slow typing down.
 9. **Documents and exchange.** Generate a document (HTML, print to PDF) with every diagram;
-   export requirements to ReqIF or Excel and import them back; send the model to a SysML v2 API
-   server.
+   export requirements to ReqIF or Excel and import them back; export the whole model to Cameo or
+   MagicDraw as SysML 1.6 XMI (project menu, **Export to Cameo (XMI)**; in Cameo use File ▸
+   Import From and its UML XMI importer); send the model to a SysML v2 API server.
 
 ## Text
 

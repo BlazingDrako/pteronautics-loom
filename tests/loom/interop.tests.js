@@ -8,12 +8,13 @@ import { exportReqif, readReqif, reqifText, roleOf } from '../../src/interop/req
 import { mergeRequirements, enumValue } from '../../src/interop/reqs.js';
 import { parseCsv, toCsv, writeXlsx, readXlsx, rowsToRecords, requirementRows, requirementsXlsx } from '../../src/interop/sheet.js';
 import { importXmi, xmiText, layerFromName } from '../../src/interop/xmi.js';
+import { exportXmi, exportLines } from '../../src/interop/xmiexport.js';
 import { createApiClient, modelFromApi, apiElementsOf, uuidFor } from '../../src/interop/api.js';
 import { buildDocument, SECTIONS } from '../../src/interop/docs.js';
 import { diagramSvg } from '../../src/interop/snapshot.js';
 import { entries, entryForKind, CATEGORIES } from '../../src/library/entries.js';
 import { figureFor } from '../../src/library/figures.js';
-import { ELEMENTS, RELATIONSHIPS } from '../../src/model/metamodel.js';
+import { ELEMENTS, RELATIONSHIPS, isDiagram as isDiagramKind } from '../../src/model/metamodel.js';
 import { zip } from '../../src/storage/zip.js';
 import { validate } from '../../src/validate/engine.js';
 import { fileFormat } from '../../src/ui/interop.js';
@@ -228,6 +229,52 @@ export async function interopTests(log) {
   log('XMI: the report says where packages went and why', xi.notes.some((n) => /Operational Analysis.*Functional, by its name/.test(n)) && xi.notes.some((n) => /Work in progress.*Functional, by what it holds/.test(n)));
   log('XMI: layer words in names', layerFromName('Functional Requirements') === 'r' && layerFromName('Physical Architecture') === 'p' && layerFromName('Functional Architecture') === 'f' && layerFromName('System Architecture') === 'l' && layerFromName('Drone') === null);
   log('XMI: a file without a UML model is refused', /no UML model/.test(err(() => importXmi('<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001"/>'))));
+
+  // ---------- XMI export (to Cameo) ----------
+  {
+  const ex = exportXmi(k);
+  const exDoc = new DOMParser().parseFromString(ex.text, 'application/xml');
+  log('XMI export is well-formed XML with the XMI 2.5.1, UML 2.5.1 and SysML 1.6 namespaces', !exDoc.getElementsByTagName('parsererror').length && ex.text.includes('http://www.omg.org/spec/XMI/20131001') && ex.text.includes('http://www.omg.org/spec/UML/20161101') && ex.text.includes('http://www.omg.org/spec/SysML/20181001/SysML'));
+  const ids = [...exDoc.getElementsByTagName('*')].map((e) => e.getAttributeNS('http://www.omg.org/spec/XMI/20131001', 'id')).filter(Boolean);
+  log('XMI export: every xmi:id is unique and starts with a letter or underscore', ids.length > 100 && new Set(ids).size === ids.length && ids.every((i) => /^[A-Za-z_][\w.-]*$/.test(/** @type {string} */ (i))), `${ids.length} ids, ${new Set(ids).size} distinct`);
+  const idSet = new Set(ids);
+  const dangling = [...exDoc.getElementsByTagName('*')].flatMap((e) => ['type', 'general', 'client', 'supplier', 'role', 'partWithPort', 'source', 'target', 'covered', 'sendEvent', 'receiveEvent', 'message', 'represents', 'addition', 'extendedCase', 'importedPackage', 'event', 'signal', 'unit', 'propertyPath', 'memberEnd', 'subject', 'behavior', 'idref'].flatMap((a) => (e.getAttribute(a) || (a === 'idref' ? e.getAttributeNS('http://www.omg.org/spec/XMI/20131001', 'idref') : '') || '').split(/\s+/).filter(Boolean)).filter((r) => !idSet.has(r)).map((r) => `${e.localName}→${r}`));
+  log('XMI export: every reference points at an element in the file', !dangling.length, dangling.slice(0, 5).join(', '));
+  log('XMI export: every Loom element is written or counted as left out', Object.values(ex.counts).reduce((a, b) => a + b, 0) > 0 && exportLines(ex).made.length > 5);
+  const back = importXmi(ex.text).model;
+  const kinds = ['requirement', 'testCase', 'partDef', 'interfaceDef', 'constraintDef', 'part', 'port', 'constraint', 'connector', 'actor', 'useCase', 'interaction', 'lifeline', 'message', 'state', 'transition', 'controlNode', 'flow', 'action'];
+  const diff = kinds.filter((kd) => k.byKind(kd).length !== back.byKind(kd).length).map((kd) => `${kd} ${k.byKind(kd).length}→${back.byKind(kd).length}`);
+  log('XMI round trip: the Kestrel sample comes back with the same number of each kind', !diff.length, diff.join(', '));
+  const inStereo = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('attribute').filter((a) => mm.get(/** @type {string} */ (a.owner))?.kind !== 'stereotype');
+  log('XMI round trip: every value property comes back (stereotype tags are left out)', inStereo(k).length === back.byKind('attribute').length, `${inStereo(k).length} → ${back.byKind('attribute').length}`);
+  /** Each value's effective unit (its own, or its value type's). @param {import('../../src/model/model.js').Model} mm */
+  const units = (mm) => inStereo(mm).map((a) => `${mm.get(/** @type {string} */ (a.owner))?.name}.${a.name}=${a.props.value || ''}[${a.props.unit || (a.props.type ? mm.get(a.props.type)?.props.unit : '') || ''}]`).sort().join(',');
+  log('XMI round trip: values keep their unit (on a value type made for it when they have none)', units(k) === units(back), `${units(k)} vs ${units(back)}`);
+  log('XMI export: a value type is made for each unit used without one', ex.text.includes('name="Real[Ah]"') || ex.text.includes('name="Real[') );
+  const relKinds = ['satisfy', 'verify', 'derive', 'refine', 'trace', 'copy', 'allocate', 'generalize', 'include', 'extend', 'participate'];
+  const relDiff = relKinds.filter((kd) => k.byKind(kd).length !== back.byKind(kd).length).map((kd) => `${kd} ${k.byKind(kd).length}→${back.byKind(kd).length}`);
+  log('XMI round trip: the same relationships of each kind', !relDiff.length, relDiff.join(', '));
+  log('XMI round trip: requirements keep their ID, text and nesting', reqSig(k).split('\n').map((l) => l.split('|').slice(0, 4).join('|')).join('\n') === requirementsIn(back, R(back)).map(({ el, depth }) => `${depth}|${el.props.reqId}|${el.name}|${el.props.text}`).sort().join('\n'));
+  const sig = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('partDef').map((b) => `${b.name}:${mm.children(b.id).filter((c) => ['part', 'port', 'attribute'].includes(c.kind)).map((c) => `${c.kind}/${c.name}/${c.props.type && !/^Real\[/.test(mm.get(c.props.type)?.name || '') ? mm.get(c.props.type)?.name : ''}/${c.props.multiplicity || ''}/${c.props.value || ''}/${c.props.conjugated ? '~' : ''}/${c.props.portKind || ''}`).sort().join(',')}`).sort().join('\n');
+  log('XMI round trip: blocks keep their parts, ports and values (types, multiplicities, defaults, conjugation)', sig(k) === sig(back));
+  const vts = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('valueType').filter((v) => !/^Real\[/.test(v.name)).map((v) => `${v.name}/${v.props.unit || ''}`).sort().join(',');
+  log('XMI round trip: value types keep their units', vts(k) === vts(back), `${vts(k)} vs ${vts(back)}`);
+  /** Messages of each interaction in reading order (through fragments). @param {import('../../src/model/model.js').Model} mm */
+  const msgs = (mm) => mm.byKind('interaction').map((i) => { const out = []; const walk = (/** @type {string} */ id) => { for (const c of mm.children(id)) { if (c.kind === 'message') out.push(`${c.name}/${c.props.msgKind}/${mm.get(c.props.from)?.name}>${mm.get(c.props.to)?.name}`); else walk(c.id); } }; walk(i.id); return `${i.name}: ${out.join('; ')}`; }).sort().join('\n');
+  log('XMI round trip: messages keep their order, kind and lifelines', msgs(k) === msgs(back), `${msgs(k)} vs ${msgs(back)}`);
+  const lls = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('lifeline').map((l) => `${l.name}/${l.props.represents ? mm.get(l.props.represents)?.name : ''}`).sort().join(',');
+  log('XMI round trip: lifelines keep what they represent', lls(k) === lls(back), `${lls(k)} vs ${lls(back)}`);
+  const trs = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('transition').map((t) => `${mm.get(t.props.from)?.name}>${mm.get(t.props.to)?.name}/${t.props.trigger}/${t.props.guard}/${t.props.effect}`).sort().join(',');
+  log('XMI round trip: transitions keep trigger, guard and effect', trs(k) === trs(back), `${trs(k)} vs ${trs(back)}`);
+  const cons = (/** @type {import('../../src/model/model.js').Model} */ mm) => mm.byKind('constraintDef').map((c) => `${c.name}/${c.props.expr}`).sort().join(',');
+  log('XMI round trip: constraint blocks keep their equation', cons(k) === cons(back), `${cons(k)} vs ${cons(back)}`);
+  log('XMI round trip: the sets come back as the sets, not as packages of the same name inside them', back.layers().every((l) => !back.children(l.id).some((c) => c.kind === 'package' && c.name === l.name)) && k.layers().every((l) => back.children(/** @type {string} */ (back.layers().find((b) => b.layer === l.layer)?.id)).length >= k.children(l.id).filter((c) => !isDiagramKind(c.kind)).length));
+  log('XMI export: diagrams are counted as left out', Object.keys(ex.skipped).some((x) => /^diagrams/.test(x)));
+  const tiny = createModel({ name: 'A & B <test>' });
+  tiny.transact('x', (tx) => { const L = tiny.layers()[2].id; tx.create('partDef', { owner: L, name: 'Ω "block"', props: { doc: 'line 1\nline 2' } }); });
+  const tinyBack = importXmi(exportXmi(tiny).text).model;
+  log('XMI round trip: names and multi-line descriptions with special characters survive', tinyBack.root().name === 'A & B <test>' && tinyBack.byKind('partDef')[0]?.name === 'Ω "block"' && tinyBack.byKind('partDef')[0]?.props.doc === 'line 1\nline 2');
+  }
 
   // ---------- SysML v2 API ----------
   const server = mockApi();

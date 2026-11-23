@@ -216,6 +216,9 @@ Chosen with the owner on 2026-11-22: the tools people reach for every day in a d
 - **Generate related diagrams**: from a block, its ibd (parts and ports placed), a state machine skeleton, or a requirement diagram of everything that traces to it.
 - **Templates and snippets**: save a model fragment (a power subsystem with ports and constraints) and drop it into any project.
 
+**Cameo parity: exchange**
+- ✓ **Export to Cameo / MagicDraw**: the whole model as SysML 1.6 XMI (UML 2.5.1), with a dialog of what was written and what SysML 1.x has no place for. Round-trips through Loom's own XMI import. Diagram layouts are not written (Cameo's own format). Still to do: try the file in a current Cameo release and adjust to what its importer expects.
+
 **Cameo parity: views**
 - ✓ **Interface control document (ICD)**: every connector inside a block (and inside its parts, as seen from it): ID, ends, ports and their directions, interface block, item flow, flow direction, what the interface carries, description. Filter, click to select, double-click for the ibd; Excel and CSV.
 - ✓ **N² chart**: a block's parts on the diagonal, what flows between them in the cells, the outside world as "External"; Excel and CSV.

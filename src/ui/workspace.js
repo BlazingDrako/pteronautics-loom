@@ -40,7 +40,7 @@ import { openRulesDialog } from './rulesdlg.js';
 import { openPreferences } from './prefs.js';
 import { presetById, presetProps } from '../custom/presets.js';
 import { createLibraryView } from '../views/library.js';
-import { importRequirements, exportRequirements, documentDialog, sendToApi, imageDialog } from './interop.js';
+import { importRequirements, exportRequirements, exportModelXmi, documentDialog, sendToApi, imageDialog } from './interop.js';
 
 /** @typedef {import('../model/model.js').Model} Model */
 /** @typedef {import('../storage/projects.js').ProjectMeta} ProjectMeta */
@@ -722,6 +722,7 @@ export function mountWorkspace(root, ctx) {
       'sep',
       { label: 'Import requirements (ReqIF, Excel, CSV)…', run: () => commands.run('interop.importReqs') },
       { label: 'Export requirements…', run: () => commands.run('interop.exportReqs') },
+      { label: 'Export to Cameo (XMI)…', run: () => commands.run('interop.exportModel') },
       { label: 'Generate a document (HTML, PDF)…', run: () => commands.run('doc.generate') },
       { label: 'Send to a SysML v2 server…', run: () => commands.run('api.send') },
       'sep',
@@ -988,6 +989,7 @@ export function mountWorkspace(root, ctx) {
     },
     importRequirements: () => importRequirements(model, selected, edit),
     exportRequirements: () => exportRequirements(model, selected),
+    exportModelXmi: () => exportModelXmi(model),
     generateDocument: () => documentDialog(model, notation()),
     sendToApi: () => sendToApi(model),
     /** Go to the next (1) or previous (-1) problem. @param {1 | -1} dir */

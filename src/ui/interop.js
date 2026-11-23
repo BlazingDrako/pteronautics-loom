@@ -1,5 +1,5 @@
 // Dialogs for exchanging models: importing and exporting requirements (ReqIF, Excel, CSV),
-// importing Cameo / MagicDraw models (XMI), the SysML v2 API, and generating documents.
+// importing and exporting Cameo / MagicDraw models (XMI), the SysML v2 API, and generating documents.
 import { h, icon, toast } from './dom.js';
 import { modal } from './dialog.js';
 import { download } from './home.js';
@@ -9,6 +9,7 @@ import { readReqif, reqifText, exportReqif } from '../interop/reqif.js';
 import { parseCsv, readXlsx, rowsToRecords, requirementRows, requirementsXlsx, toCsv } from '../interop/sheet.js';
 import { mergeRequirements, mergeSummary } from '../interop/reqs.js';
 import { importXmi, xmiText, reportLines } from '../interop/xmi.js';
+import { exportXmi, exportLines } from '../interop/xmiexport.js';
 import { createApiClient, modelFromApi, apiElementsOf } from '../interop/api.js';
 import { buildDocument, SECTIONS, documentDiagrams, loadFonts, printHtml } from '../interop/docs.js';
 import { diagramSvg } from '../interop/snapshot.js';
@@ -170,6 +171,30 @@ export async function modelFromForeignFile(file) {
     return { model: m, name: m.root().name };
   }
   return null;
+}
+
+/**
+ * Export the whole model as SysML 1.6 XMI, for Cameo Systems Modeler and MagicDraw. Shows what
+ * goes and what SysML 1.x has no place for before downloading.
+ * @param {Model} m
+ */
+export async function exportModelXmi(m) {
+  const r = exportXmi(m);
+  const lines = exportLines(r);
+  const ok = await modal({
+    title: 'Export to Cameo (XMI)', ok: 'Download .xmi',
+    build: () => ({
+      body: h('div', { class: 'import-report' },
+        h('p', { class: 'dialog-text' }, 'The whole model as SysML 1.6 XMI (UML 2.5.1). In Cameo or MagicDraw, open it with File ▸ Import From and the UML XMI importer. Each set becomes a top-level package.'),
+        h('div', { class: 'sec' }, 'Written'), h('p', { class: lines.made.length ? 'dialog-text' : 'muted small' }, lines.made.length ? `${lines.made.join(', ')}.` : 'Nothing to export yet.'),
+        lines.left.length ? [h('div', { class: 'sec' }, 'Left out'), h('ul', { class: 'notes-list' }, lines.left.map((x) => h('li', {}, x)))] : null),
+      value: () => true,
+    }),
+  });
+  if (!ok) return;
+  const base = m.root().name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'model';
+  download(`${base}.xmi`, r.text, 'application/xml');
+  toast(`Exported ${base}.xmi`);
 }
 
 // ---------- documents ----------

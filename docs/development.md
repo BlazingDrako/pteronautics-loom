@@ -26,7 +26,7 @@ analysis/    units, expressions, the parametric solver, live requirement checks
 sim/         running activities, state machines and sequences
 validate/    rules, the engine, and the worker that runs them in the background
 custom/      stereotypes and view presets
-interop/     ReqIF, CSV/Excel, Cameo XMI, the SysML v2 API, documents
+interop/     ReqIF, CSV/Excel, Cameo XMI (import and export), the SysML v2 API, documents
 storage/     projects (IndexedDB), project folders, zip
 ui/          the shell: home, workspace, browser tree, properties panel, dialogs, panels
 pwa.js       the service worker registration, install prompt and files opened with the app

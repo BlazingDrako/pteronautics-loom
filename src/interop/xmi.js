@@ -117,6 +117,8 @@ export function importXmi(text) {
 
   const m = createModel({ name: attr(umlModel, 'name') || 'Imported model' });
   const layerId = Object.fromEntries(m.layers().map((l) => [/** @type {string} */ (l.layer), l.id]));
+  /** The sets by name, lower case → layer. */
+  const setByName = new Map(m.layers().map((l) => [l.name.toLowerCase(), /** @type {string} */ (l.layer)]));
   /** @type {Map<string, string>} xmi id → Loom id */
   const made = new Map();
   /** @type {Record<string, number>} */
@@ -133,7 +135,10 @@ export function importXmi(text) {
 
   // ---------- which layer each package belongs to ----------
   const classifierTags = ['packagedElement', 'nestedClassifier', 'ownedBehavior', 'ownedUseCase'];
-  const allClassifiers = [...umlModel.getElementsByTagName('*')].filter((el) => classifierTags.includes(local(el)) && kindOf(el) && kindOf(el) !== 'package');
+  /** An activity owned by an activity and called by one of its actions: read into that action, not on its own. @param {Element} el */
+  const calledSub = (el) => typeOf(el) === 'uml:Activity' && local(el) === 'ownedBehavior' && !!el.parentElement && typeOf(el.parentElement) === 'uml:Activity'
+    && kids(el.parentElement, 'node').some((n) => ref(n, 'behavior') === attr(el, 'id'));
+  const allClassifiers = [...umlModel.getElementsByTagName('*')].filter((el) => classifierTags.includes(local(el)) && kindOf(el) && kindOf(el) !== 'package' && !calledSub(el));
   /** Per package: how many elements inside it (at any depth) each layer would take. @type {Map<Element, Record<string, number>>} */
   const tally = new Map();
   for (const el of allClassifiers) {
@@ -153,6 +158,11 @@ export function importXmi(text) {
     const named = layerFromName(attr(xp, 'name') || '');
     const parent = ownerOf(xp);
     const up = parent && parent !== umlModel && kindOf(parent) === 'package' ? packageLayer(parent) : null;
+    // a top-level package named exactly like a set ("Requirements", "Logical", as Loom writes
+    // them) is that set, and everything in it stays there whatever its own name says
+    const exact = parent === umlModel ? setByName.get((attr(xp, 'name') || '').trim().toLowerCase()) : undefined;
+    if (exact) { const d = { layer: exact, why: 'its set' }; decided.set(xp, d); return exact; }
+    if (up && parent && /set$/.test(decided.get(parent)?.why || '')) { const d = { layer: up, why: 'in its set' }; decided.set(xp, d); return up; }
     const t = tally.get(xp);
     const total = t ? t.r + t.f + t.l + t.p : 0;
     const top = t ? /** @type {string} */ (Object.entries(t).sort((a, b) => b[1] - a[1])[0][0]) : null;
@@ -185,6 +195,11 @@ export function importXmi(text) {
       if (kindOf(xp) !== 'package') return pkgIn(ownerOf(xp), layer);
       const key = `${layer}|${attr(xp, 'id')}`;
       let id = pkgCopy.get(key);
+      // a top-level package named like the layer it goes to (as Loom's own exports are) is that layer
+      if (!id && ownerOf(xp) === umlModel && (attr(xp, 'name') || '').trim().toLowerCase() === (m.get(layerId[layer])?.name || '').toLowerCase()) {
+        id = layerId[layer];
+        pkgCopy.set(key, id);
+      }
       if (!id) {
         const parent = pkgIn(ownerOf(xp), layer);
         id = /** @type {string} */ (make('package', parent, { name: attr(xp, 'name') || 'Package' }));
@@ -208,7 +223,7 @@ export function importXmi(text) {
       const xpkg = packageOf(el);
       let owner = pkgIn(xpkg, (xpkg && xpkg !== umlModel && packageLayer(xpkg)) || LAYER_OF[kind] || 'l');
       if (kind === 'requirement' && xo && made.has(attr(xo, 'id') || '') && m.get(/** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id')))))?.kind === 'requirement') owner = /** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id'))));
-      if (kind === 'interaction' && xo && made.get(attr(xo, 'id') || '') && m.get(/** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id')))))?.kind === 'partDef') owner = /** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id'))));
+      if ((kind === 'interaction' || kind === 'useCase') && xo && made.get(attr(xo, 'id') || '') && m.get(/** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id')))))?.kind === 'partDef') owner = /** @type {string} */ (made.get(/** @type {string} */ (attr(xo, 'id'))));
       /** @type {Record<string, any>} */
       const props = {};
       const d = docOf(el);
@@ -293,16 +308,6 @@ export function importXmi(text) {
       const spec = ownerOf(g);
       link('generalize', made.get(attr(/** @type {Element} */ (spec), 'id') || ''), made.get(ref(g, 'general') || ''), 'Generalizations');
     }
-    for (const d of [...doc.getElementsByTagName('*')].filter((x) => ['uml:Abstraction', 'uml:Dependency', 'uml:Realization', 'uml:Usage'].includes(typeOf(x)))) {
-      const did = /** @type {string} */ (attr(d, 'id'));
-      const st = (stereo.get(did) || []).map((s) => REL_STEREO[s.name]).find(Boolean) || 'trace';
-      const clients = refs(d, 'client'), suppliers = refs(d, 'supplier');
-      for (const c of clients) for (const s of suppliers) {
-        const a = made.get(c), b = made.get(s);
-        if (st === 'allocate') link('allocate', a, b, 'Allocations');
-        else link(st, a, b, `«${st}» relationships`);
-      }
-    }
     // ---------- 4. connectors ----------
     for (const [xid, lid] of [...made]) {
       if (m.get(lid)?.kind !== 'partDef') continue;
@@ -331,7 +336,10 @@ export function importXmi(text) {
     // ---------- 5. activities ----------
     for (const [xid, lid] of [...made]) {
       if (m.get(lid)?.kind !== 'action' || typeOf(/** @type {Element} */ (byId.get(xid))) !== 'uml:Activity') continue;
-      const act = /** @type {Element} */ (byId.get(xid));
+      readActivity(/** @type {Element} */ (byId.get(xid)), lid);
+    }
+    /** An activity's nodes, flows and swimlanes, into a Loom action. @param {Element} act @param {string} lid */
+    function readActivity(act, lid) {
       /** pins → the action they belong to */
       const pinOwner = new Map();
       const NODE = /** @type {Record<string, string>} */ ({ 'uml:InitialNode': 'initial', 'uml:ActivityFinalNode': 'final', 'uml:FlowFinalNode': 'flowFinal', 'uml:DecisionNode': 'decision', 'uml:MergeNode': 'merge', 'uml:ForkNode': 'fork', 'uml:JoinNode': 'join' });
@@ -341,7 +349,9 @@ export function importXmi(text) {
         if (/Action$/.test(t)) {
           const beh = ref(n, 'behavior');
           const fallback = beh ? attr(/** @type {Element} */ (byId.get(beh)), 'name') || 'Action' : 'Action';
-          make('action', lid, { name: nameOf(n, fallback) }, nid);
+          const aid = make('action', lid, { name: nameOf(n, fallback) }, nid);
+          const called = beh ? byId.get(beh) : undefined;
+          if (aid && called && calledSub(called)) readActivity(called, aid);
           for (const pin of n.children) if (/Pin$/.test(typeOf(pin))) pinOwner.set(attr(pin, 'id'), nid);
           continue;
         }
@@ -408,7 +418,10 @@ export function importXmi(text) {
       if (m.get(lid)?.kind !== 'interaction') continue;
       const it = /** @type {Element} */ (byId.get(xid));
       for (const l of kids(it, 'lifeline')) {
-        const rep = made.get(ref(l, 'represents') || '');
+        // a lifeline represents a property: a part Loom made, or one typed by a block or an actor
+        const rid = ref(l, 'represents') || '';
+        const prop = byId.get(rid);
+        const rep = made.get(rid) || (prop ? made.get(ref(prop, 'type') || '') : undefined);
         const rk = rep ? m.get(rep)?.kind : undefined;
         make('lifeline', lid, { name: nameOf(l, 'lifeline'), props: { represents: rk === 'part' || rk === 'partDef' || rk === 'actor' ? rep : null } }, attr(l, 'id') || undefined);
       }
@@ -422,6 +435,18 @@ export function importXmi(text) {
         const from = made.get(covered.get(ref(msg, 'sendEvent')) || ''), to = made.get(covered.get(ref(msg, 'receiveEvent')) || '');
         if (!from || !to) { skip('messages without both lifelines (gates, lost and found messages)'); continue; }
         make('message', lid, { name: nameOf(msg, 'message'), props: { from, to, msgKind: SORT[msg.getAttribute('messageSort') || 'synchCall'] || 'sync' } }, attr(msg, 'id') || undefined);
+      }
+    }
+    // dependencies (satisfy, verify, derive, refine, trace, copy, allocate), now that actions,
+    // states and messages exist too
+    for (const d of [...doc.getElementsByTagName('*')].filter((x) => ['uml:Abstraction', 'uml:Dependency', 'uml:Realization', 'uml:Usage'].includes(typeOf(x)))) {
+      const did = /** @type {string} */ (attr(d, 'id'));
+      const st = (stereo.get(did) || []).map((s) => REL_STEREO[s.name]).find(Boolean) || 'trace';
+      const clients = refs(d, 'client'), suppliers = refs(d, 'supplier');
+      for (const c of clients) for (const s of suppliers) {
+        const a = made.get(c), b = made.get(s);
+        if (st === 'allocate') link('allocate', a, b, 'Allocations');
+        else link(st, a, b, `«${st}» relationships`);
       }
     }
     // use case relationships
@@ -471,9 +496,16 @@ function multiplicity(lo, up) {
 /** @param {Model} m @param {any} end */
 const endName = (m, end) => [...end.path, ...(end.port ? [end.port] : [])].map((id) => m.get(id)?.name).join('.');
 
+/** "1 activity", "3 activities", "2 value properties", "4 blocks". @param {number} n @param {string} word */
+export function plural(n, word) {
+  if (n === 1) return `${n} ${word}`;
+  if (/[^aeiou]y$/.test(word)) return `${n} ${word.slice(0, -1)}ies`;
+  if (/(s|x|ch|sh)$/.test(word)) return `${n} ${word}es`;
+  return `${n} ${word}s`;
+}
 /** A short report of an import, for a dialog. @param {XmiReport} r */
 export function reportLines(r) {
-  const made = Object.entries(r.counts).filter(([, n]) => n).map(([k, n]) => `${n} ${k === 'relationships' ? 'relationships' : kindName(k, 'sysml').toLowerCase()}${n === 1 || k === 'relationships' ? '' : 's'}`);
+  const made = Object.entries(r.counts).filter(([, n]) => n).map(([k, n]) => (k === 'relationships' ? plural(n, 'relationship') : plural(n, kindName(k, 'sysml').toLowerCase())));
   const left = Object.entries(r.skipped).map(([what, n]) => `${n} ${what}`);
   return { made, left, notes: r.notes };
 }
